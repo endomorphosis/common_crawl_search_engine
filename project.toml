@@ -8,6 +8,15 @@ license = {text = "MIT"}
 authors = [{name = "endomorphosis"}]
 keywords = ["common-crawl", "search", "indexing"]
 
+[project.urls]
+Homepage = "https://github.com/endomorphosis/common_crawl_search_engine"
+Repository = "https://github.com/endomorphosis/common_crawl_search_engine"
+
+[project.optional-dependencies]
+ccindex = ["duckdb", "pyarrow"]
+mcp = ["fastapi", "uvicorn"]
+dev = ["pytest", "ruff", "mypy"]
+
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]

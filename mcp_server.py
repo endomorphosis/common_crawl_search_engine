@@ -1,8 +1,13 @@
-"""MCP stdio server for ccindex (application layer)."""
+"""MCP server for ccindex (application layer).
+
+Supports both stdio (default) and TCP/IP with JSON-RPC modes.
+"""
 
 from __future__ import annotations
 
+import argparse
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -29,13 +34,65 @@ def _maybe_path(p: Optional[str]) -> Optional[Path]:
     return Path(p).expanduser().resolve()
 
 
-def main() -> int:
+def main(argv: Optional[List[str]] = None) -> int:
+    """Run MCP server in stdio or TCP/IP mode.
+    
+    Args:
+        argv: Command line arguments (defaults to sys.argv[1:])
+    
+    Returns:
+        Exit code (0 for success)
+    """
+    parser = argparse.ArgumentParser(
+        description="MCP server for Common Crawl Search Engine",
+        epilog="For TCP/IP mode with web dashboard, use: ccindex-dashboard --host HOST --port PORT"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["stdio", "tcp"],
+        default="stdio",
+        help="Server mode: stdio (default) for pipe-based communication, tcp for network server"
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind to in TCP mode (default: 127.0.0.1)"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8787,
+        help="Port to bind to in TCP mode (default: 8787)"
+    )
+    parser.add_argument(
+        "--master-db",
+        type=Path,
+        default=Path(os.environ.get("CCINDEX_MASTER_DB", "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")),
+        help="Master meta-index DuckDB path (default: /storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb or $CCINDEX_MASTER_DB)"
+    )
+    
+    args = parser.parse_args(argv)
+    
     _ensure_default_search_env()
+    
+    # TCP mode delegates to the dashboard which provides MCP over HTTP JSON-RPC
+    if args.mode == "tcp":
+        sys.stderr.write("Starting MCP server in TCP/IP mode (HTTP JSON-RPC)...\n")
+        sys.stderr.write(f"Server will be available at http://{args.host}:{args.port}/mcp\n")
+        sys.stderr.write("Note: This mode provides full dashboard UI + MCP JSON-RPC endpoint\n")
+        from common_crawl_search_engine.dashboard import main as dashboard_main
+        return dashboard_main([
+            "--host", str(args.host),
+            "--port", str(args.port),
+            "--master-db", str(args.master_db)
+        ])
+    
+    # Default stdio mode using FastMCP
     try:
         from mcp.server.fastmcp import FastMCP  # type: ignore
     except Exception as e:  # pragma: no cover
         raise SystemExit(
-            "Missing MCP dependency. Install with: pip install -e '.[ccindex-mcp]'\n" f"Import error: {e}"
+            "Missing MCP dependency. Install with: pip install -e '.[mcp]'\n" f"Import error: {e}"
         )
 
     mcp = FastMCP("ccindex")
@@ -256,3 +313,7 @@ def main() -> int:
 
     mcp.run()
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

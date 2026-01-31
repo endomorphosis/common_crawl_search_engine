@@ -1,0 +1,13 @@
+[project]
+name = "common-crawl-search-engine"
+version = "0.1.0"
+description = "Common Crawl indexing and search utilities."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "endomorphosis"}]
+keywords = ["common-crawl", "search", "indexing"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

@@ -59,7 +59,7 @@ ccindex-mcp-server --mode tcp --host 127.0.0.1 --port 8787
 
 **MCP Server Modes:**
 - **stdio** (default): Pipe-based communication for MCP clients
-- **tcp**: HTTP server with JSON-RPC endpoint at `POST /mcp`
+- **tcp**: HTTP server with JSON-RPC endpoint at `POST /mcp` (delegates to dashboard module which provides the full MCP endpoint and web UI)
 
 ### `ccindex-dashboard` - Web Dashboard
 

@@ -67,8 +67,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--master-db",
         type=Path,
-        default=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
-        help="Master meta-index DuckDB path"
+        default=Path(os.environ.get("CCINDEX_MASTER_DB", "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")),
+        help="Master meta-index DuckDB path (default: /storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb or $CCINDEX_MASTER_DB)"
     )
     
     args = parser.parse_args(argv)

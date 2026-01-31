@@ -14,4 +14,11 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     python_requires=">=3.10",
+    entry_points={
+        "console_scripts": [
+            "ccindex=common_crawl_search_engine.cli:main",
+            "ccindex-mcp-server=common_crawl_search_engine.mcp_server:main",
+            "ccindex-dashboard=common_crawl_search_engine.dashboard:main",
+        ],
+    },
 )

@@ -8,6 +8,11 @@ license = {text = "MIT"}
 authors = [{name = "endomorphosis"}]
 keywords = ["common-crawl", "search", "indexing"]
 
+[project.scripts]
+ccindex = "common_crawl_search_engine.cli:main"
+ccindex-mcp-server = "common_crawl_search_engine.mcp_server:main"
+ccindex-dashboard = "common_crawl_search_engine.dashboard:main"
+
 [project.urls]
 Homepage = "https://github.com/endomorphosis/common_crawl_search_engine"
 Repository = "https://github.com/endomorphosis/common_crawl_search_engine"

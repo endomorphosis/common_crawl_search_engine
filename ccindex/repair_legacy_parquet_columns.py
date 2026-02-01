@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ import pyarrow.parquet as pq
 from common_crawl_search_engine.ccindex.api import collection_year
 
 REQUIRED_COLS = ("collection", "shard_file")
+DEFAULT_COMPRESSION = (os.environ.get("CC_PARQUET_COMPRESSION") or "zstd").strip().lower()
 
 
 def _collection_dirs(parquet_root: Path) -> List[Path]:
@@ -40,7 +42,7 @@ def _parquet_missing_cols(pq_path: Path) -> bool:
         return False
 
 
-def _repair_file(pq_path: Path, collection: str, overwrite: bool) -> bool:
+def _repair_file(pq_path: Path, collection: str, overwrite: bool, compression: str) -> bool:
     try:
         table = pq.read_table(str(pq_path))
     except Exception:
@@ -58,7 +60,7 @@ def _repair_file(pq_path: Path, collection: str, overwrite: bool) -> bool:
 
     if overwrite:
         tmp = pq_path.with_suffix(pq_path.suffix + ".repair")
-        pq.write_table(repaired, tmp)
+        pq.write_table(repaired, tmp, compression=str(compression))
         tmp.replace(pq_path)
     return True
 
@@ -88,6 +90,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     ap.add_argument("--collections", default="", help="Comma-separated list of collections")
     ap.add_argument("--dry-run", action="store_true", help="Report files needing repair")
     ap.add_argument("--overwrite", action="store_true", help="Rewrite parquet files in place")
+    ap.add_argument(
+        "--compression",
+        default=DEFAULT_COMPRESSION,
+        help="Parquet compression to use when rewriting (default: zstd)",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     parquet_root = Path(args.parquet_root).expanduser().resolve()
@@ -118,7 +125,12 @@ def main(argv: Iterable[str] | None = None) -> int:
                 if args.dry_run:
                     print(f"missing_cols: {pq_path}", flush=True)
                 else:
-                    ok = _repair_file(pq_path, collection, overwrite=bool(args.overwrite))
+                    ok = _repair_file(
+                        pq_path,
+                        collection,
+                        overwrite=bool(args.overwrite),
+                        compression=str(args.compression),
+                    )
                     if ok:
                         repaired += 1
 

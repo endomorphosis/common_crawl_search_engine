@@ -95,7 +95,7 @@ def convert_one_file(args):
                     if len(chunk) >= CHUNK_SIZE:
                         batch = pa.RecordBatch.from_pylist(chunk, schema=schema)
                         if writer is None:
-                            writer = pq.ParquetWriter(parquet_path, schema, compression='snappy')
+                            writer = pq.ParquetWriter(parquet_path, schema, compression='zstd')
                         writer.write_batch(batch)
                         total_records += len(chunk)
                         chunk = []
@@ -107,7 +107,7 @@ def convert_one_file(args):
         if chunk:
             batch = pa.RecordBatch.from_pylist(chunk, schema=schema)
             if writer is None:
-                writer = pq.ParquetWriter(parquet_path, schema, compression='snappy')
+                writer = pq.ParquetWriter(parquet_path, schema, compression='zstd')
             writer.write_batch(batch)
             total_records += len(chunk)
         

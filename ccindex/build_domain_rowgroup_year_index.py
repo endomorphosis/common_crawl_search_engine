@@ -8,6 +8,7 @@ cc_domain_rowgroups into one DB per year.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -48,6 +49,7 @@ def _ensure_schema(con: duckdb.DuckDBPyConnection) -> None:
 def _copy_collection(con: duckdb.DuckDBPyConnection, db_path: Path, collection: str) -> int:
     con.execute(f"ATTACH '{db_path}' AS src")
     try:
+        rows = con.execute("SELECT COUNT(*) FROM src.cc_domain_rowgroups").fetchone()[0]
         con.execute(
             """
             INSERT INTO cc_domain_rowgroups
@@ -56,9 +58,7 @@ def _copy_collection(con: duckdb.DuckDBPyConnection, db_path: Path, collection: 
             """,
             [collection],
         )
-        rows = con.execute("SELECT changes()").fetchone()[0]
     except Exception:
-        # Fallback: count rows from source
         rows = con.execute("SELECT COUNT(*) FROM src.cc_domain_rowgroups").fetchone()[0]
         con.execute(
             """
@@ -73,20 +73,49 @@ def _copy_collection(con: duckdb.DuckDBPyConnection, db_path: Path, collection: 
     return int(rows or 0)
 
 
-def build_year_index(collection_dir: Path, year: str, output_db: Path, *, overwrite: bool) -> None:
-    if output_db.exists() and overwrite:
+def _existing_collections(con: duckdb.DuckDBPyConnection) -> set[str]:
+    try:
+        con.execute("SELECT 1 FROM cc_domain_rowgroups LIMIT 1").fetchone()
+    except Exception:
+        return set()
+    try:
+        rows = con.execute("SELECT DISTINCT collection FROM cc_domain_rowgroups").fetchall()
+        return {str(r[0]) for r in rows if r and r[0] is not None}
+    except Exception:
+        return set()
+
+
+def build_year_index(
+    collection_dir: Path,
+    year: str,
+    output_db: Path,
+    *,
+    overwrite: bool,
+    resume: bool,
+    memory_limit: str | None,
+) -> None:
+    if output_db.exists() and overwrite and not resume:
         output_db.unlink()
     output_db.parent.mkdir(parents=True, exist_ok=True)
 
     con = duckdb.connect(str(output_db))
     try:
         con.execute("PRAGMA threads=4")
+        if memory_limit:
+            try:
+                con.execute(f"PRAGMA memory_limit='{memory_limit}'")
+            except Exception:
+                pass
         _ensure_schema(con)
 
         total = 0
         files = _iter_collection_dbs(collection_dir, year)
         if not files:
             raise SystemExit(f"No collection DBs found for year {year} in {collection_dir}")
+
+        existing = _existing_collections(con) if resume else set()
+        if existing:
+            print(f"resume enabled: {len(existing)} collections already in output", flush=True)
 
         start_time = time.time()
         last_log = start_time
@@ -97,6 +126,9 @@ def build_year_index(collection_dir: Path, year: str, output_db: Path, *, overwr
 
         for idx, db_path in enumerate(files, 1):
             collection = db_path.stem.replace(".domain_rowgroups", "")
+            if resume and collection in existing:
+                print(f"collection_skip {collection} (already present)", flush=True)
+                continue
             print(f"collection_start {collection}", flush=True)
             t0 = time.time()
             rows = _copy_collection(con, db_path, collection)
@@ -138,6 +170,12 @@ def main(argv: Iterable[str] | None = None) -> int:
         help="Output DB path (default: /storage/ccindex_duckdb/cc_domain_rowgroups_by_year/cc_domain_rowgroups_<year>.duckdb)",
     )
     ap.add_argument("--overwrite", action="store_true", help="Overwrite output DB if it exists")
+    ap.add_argument("--resume", action="store_true", help="Resume if output DB already has data")
+    ap.add_argument(
+        "--memory-limit",
+        default=(os.environ.get("CC_ROWGROUP_YEAR_BUILD_MEMORY_LIMIT") or ""),
+        help="DuckDB memory limit (e.g., 8GB).",
+    )
     args = ap.parse_args(list(argv) if argv is not None else None)
 
     year = str(args.year).strip()
@@ -152,7 +190,15 @@ def main(argv: Iterable[str] | None = None) -> int:
             f"/storage/ccindex_duckdb/cc_domain_rowgroups_by_year/cc_domain_rowgroups_{year}.duckdb"
         ).expanduser().resolve()
 
-    build_year_index(collection_dir, year, output_db, overwrite=bool(args.overwrite))
+    mem_limit = str(args.memory_limit).strip() or None
+    build_year_index(
+        collection_dir,
+        year,
+        output_db,
+        overwrite=bool(args.overwrite),
+        resume=bool(args.resume),
+        memory_limit=mem_limit,
+    )
     return 0
 
 

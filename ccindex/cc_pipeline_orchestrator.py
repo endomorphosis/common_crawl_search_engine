@@ -1437,6 +1437,8 @@ class PipelineOrchestrator:
 
             if bool(getattr(self.config, "rewrite_sorted_parquet", False)):
                 cmd.append("--rewrite-sorted")
+                # Default to conditional rewrite to avoid rewriting already-optimized shards.
+                cmd.append("--rewrite-sorted-if-needed")
 
                 # Optionally restrict to a small subset of shards for a pilot run.
                 limit = getattr(self.config, "rewrite_sorted_limit", None)

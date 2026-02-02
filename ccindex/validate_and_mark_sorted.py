@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import multiprocessing
 import os
+import statistics
 import shutil
 import sys
 import tempfile
@@ -33,6 +34,128 @@ from typing import List, Optional, Tuple
 
 import duckdb
 import pyarrow.parquet as pq
+
+
+def _parquet_has_columns(parquet_file: Path, required: set[str]) -> bool:
+    if not required:
+        return True
+    try:
+        pf = pq.ParquetFile(parquet_file)
+        names = set(pf.schema_arrow.names)
+        return required.issubset(names)
+    except Exception:
+        return False
+
+
+def _parquet_all_zstd(parquet_file: Path) -> bool:
+    """Return True if the parquet appears to use ZSTD compression.
+
+    We check row group 0 metadata (fast) and require all columns to report ZSTD.
+    """
+
+    try:
+        pf = pq.ParquetFile(parquet_file)
+        md = pf.metadata
+        if md is None or md.num_row_groups == 0:
+            return True
+        rg0 = md.row_group(0)
+        for i in range(rg0.num_columns):
+            if str(rg0.column(i).compression).upper() != "ZSTD":
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _row_group_compressed_bytes(md: pq.FileMetaData, rg_idx: int) -> int:
+    rg = md.row_group(rg_idx)
+    total = 0
+    for i in range(rg.num_columns):
+        col = rg.column(i)
+        # Prefer compressed size; fall back to total byte size if missing.
+        try:
+            v = int(getattr(col, "total_compressed_size"))
+        except Exception:
+            v = 0
+        if v <= 0:
+            try:
+                v = int(getattr(col, "total_uncompressed_size"))
+            except Exception:
+                v = 0
+        if v <= 0:
+            try:
+                v = int(getattr(rg, "total_byte_size"))
+            except Exception:
+                v = 0
+        total += max(0, int(v))
+    return int(total)
+
+
+def _parquet_rowgroups_approx_target_mb(
+    parquet_file: Path,
+    *,
+    target_mb: int,
+    tolerance_ratio: float,
+    sample_rowgroups: int = 10,
+) -> bool:
+    """Return True if the shard's row groups are already near the target size.
+
+    Uses median compressed bytes over a small sample of row groups.
+    """
+
+    try:
+        pf = pq.ParquetFile(parquet_file)
+        md = pf.metadata
+        if md is None or md.num_row_groups == 0:
+            return True
+
+        n = int(md.num_row_groups)
+        k = max(1, min(int(sample_rowgroups), n))
+        # Evenly sample row groups.
+        if k == 1:
+            idxs = [n // 2]
+        else:
+            idxs = [int(round(i * (n - 1) / (k - 1))) for i in range(k)]
+
+        sizes = [_row_group_compressed_bytes(md, i) for i in idxs]
+        sizes = [s for s in sizes if s > 0]
+        if not sizes:
+            return False
+
+        med = float(statistics.median(sizes))
+        target = float(max(1, int(target_mb))) * 1024.0 * 1024.0
+        tol = max(0.0, float(tolerance_ratio))
+        lo = target * (1.0 - tol)
+        hi = target * (1.0 + tol)
+        return lo <= med <= hi
+    except Exception:
+        return False
+
+
+def _parquet_needs_rewrite(
+    parquet_file: Path,
+    *,
+    target_mb: Optional[int],
+    tolerance_ratio: float,
+    required_columns: set[str],
+) -> bool:
+    """Return True if we should rewrite the already-sorted shard."""
+
+    # Missing required columns => not "already optimized".
+    if required_columns and not _parquet_has_columns(parquet_file, required_columns):
+        return True
+    # Non-ZSTD => rewrite.
+    if not _parquet_all_zstd(parquet_file):
+        return True
+    # Row groups not near target => rewrite.
+    if target_mb is not None:
+        if not _parquet_rowgroups_approx_target_mb(
+            parquet_file,
+            target_mb=int(target_mb),
+            tolerance_ratio=float(tolerance_ratio),
+        ):
+            return True
+    return False
 
 
 def _is_hidden_path(parquet_root: Path, p: Path) -> bool:
@@ -513,6 +636,42 @@ def main() -> int:
         default=False,
         help="Also rewrite already-sorted *.sorted.parquet files (keeps name) to apply row-group-size / normalization",
     )
+    ap.add_argument(
+        "--rewrite-sorted-if-needed",
+        action="store_true",
+        default=False,
+        help=(
+            "When used with --rewrite-sorted, only rewrite shards that are not already optimized "
+            "(wrong row-group sizing ~target MB, non-ZSTD, or missing required columns)."
+        ),
+    )
+    ap.add_argument(
+        "--rewrite-target-mb",
+        type=int,
+        default=None,
+        help=(
+            "Target row group size in MB for deciding whether a shard needs rewrite (default: env CC_SORT_ROW_GROUP_TARGET_MB, else 128). "
+            "Used only with --rewrite-sorted-if-needed."
+        ),
+    )
+    ap.add_argument(
+        "--rewrite-tolerance",
+        type=float,
+        default=0.35,
+        help=(
+            "Tolerance ratio for row group size check when deciding whether a shard needs rewrite. "
+            "Example: 0.35 means accept within ±35%% of target MB (default: 0.35)."
+        ),
+    )
+    ap.add_argument(
+        "--rewrite-require-column",
+        action="append",
+        default=None,
+        help=(
+            "Column name that must exist to treat a shard as already optimized. Can be repeated. "
+            "When --rewrite-sorted-if-needed is set and this is omitted, defaults to requiring 'collection' and 'shard_file'."
+        ),
+    )
     ap.add_argument("--sort-unsorted", action="store_true", help="Sort any unsorted files found")
     ap.add_argument("--verify-only", action="store_true", help="Only verify, don't mark or sort")
     ap.add_argument("--memory-per-sort", type=float, default=4.0, help="GB memory per sort operation")
@@ -677,7 +836,40 @@ def main() -> int:
         if args.rewrite_sorted:
             # Only rewrite already-marked sorted files.
             rewrite_files = list(already_marked)
-            if rewrite_files:
+            if args.rewrite_sorted_if_needed and rewrite_files:
+                # Decide target MB.
+                target_mb = args.rewrite_target_mb
+                if target_mb is None:
+                    try:
+                        target_mb = int((os.environ.get("CC_SORT_ROW_GROUP_TARGET_MB") or "128").strip() or 128)
+                    except Exception:
+                        target_mb = 128
+
+                # Decide required columns.
+                required_cols: set[str]
+                if args.rewrite_require_column:
+                    required_cols = {str(c).strip() for c in args.rewrite_require_column if str(c).strip()}
+                else:
+                    required_cols = {"collection", "shard_file"}
+
+                keep: List[Path] = []
+                skipped = 0
+                for p in rewrite_files:
+                    if _parquet_needs_rewrite(
+                        p,
+                        target_mb=int(target_mb) if target_mb is not None else None,
+                        tolerance_ratio=float(args.rewrite_tolerance),
+                        required_columns=required_cols,
+                    ):
+                        keep.append(p)
+                    else:
+                        skipped += 1
+                rewrite_files = keep
+                print(
+                    f"Rewrite-if-needed enabled: will rewrite {len(rewrite_files)} shard(s), skip {skipped} already-optimized shard(s) "
+                    f"(target≈{target_mb}MB, tol=±{float(args.rewrite_tolerance):.2f}, require_cols={sorted(required_cols)})"
+                )
+            elif rewrite_files:
                 print(f"Rewrite enabled: will rewrite {len(rewrite_files)} already-sorted file(s)")
 
         def _looks_like_pool_crash(exc: BaseException) -> bool:

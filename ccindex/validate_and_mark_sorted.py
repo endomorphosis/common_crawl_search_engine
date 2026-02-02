@@ -141,9 +141,12 @@ def _parquet_needs_rewrite(
 ) -> bool:
     """Return True if we should rewrite the already-sorted shard."""
 
-    # Missing required columns => not "already optimized".
+    # NOTE: rewriting cannot add missing columns (it only copies the existing
+    # schema). If required columns are missing, the correct action is to repair
+    # the parquet schema upstream (e.g., repair_legacy_parquet_columns.py) and
+    # then retry. Treat as "do not rewrite" here.
     if required_columns and not _parquet_has_columns(parquet_file, required_columns):
-        return True
+        return False
     # Non-ZSTD => rewrite.
     if not _parquet_all_zstd(parquet_file):
         return True
@@ -854,7 +857,11 @@ def main() -> int:
 
                 keep: List[Path] = []
                 skipped = 0
+                missing_cols = 0
                 for p in rewrite_files:
+                    if required_cols and not _parquet_has_columns(p, required_cols):
+                        missing_cols += 1
+                        continue
                     if _parquet_needs_rewrite(
                         p,
                         target_mb=int(target_mb) if target_mb is not None else None,
@@ -869,6 +876,11 @@ def main() -> int:
                     f"Rewrite-if-needed enabled: will rewrite {len(rewrite_files)} shard(s), skip {skipped} already-optimized shard(s) "
                     f"(target≈{target_mb}MB, tol=±{float(args.rewrite_tolerance):.2f}, require_cols={sorted(required_cols)})"
                 )
+                if missing_cols:
+                    print(
+                        f"⚠️  Rewrite-if-needed skipped {missing_cols} shard(s) missing required columns {sorted(required_cols)}. "
+                        "Rewrite cannot add columns; run repair_legacy_parquet_columns.py to fix schema."
+                    )
             elif rewrite_files:
                 print(f"Rewrite enabled: will rewrite {len(rewrite_files)} already-sorted file(s)")
 

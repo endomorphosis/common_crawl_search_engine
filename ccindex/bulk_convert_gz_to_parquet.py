@@ -157,8 +157,15 @@ def _coerce_int(value: object) -> Optional[int]:
 def convert_gz_to_parquet(gz_path: Path, output_path: Path, chunk_size: int = 100000) -> bool:
     """Convert a single .gz file to parquet."""
 
+    # Derive collection name from the input directory layout.
+    # In the pipeline, gz_path is typically /.../<collection>/cdx-xxxxx.gz
+    collection = gz_path.parent.name
+    shard_file = output_path.name
+
     schema = pa.schema(
         [
+            ("collection", pa.string()),
+            ("shard_file", pa.string()),
             ("surt", pa.string()),
             ("ts", pa.string()),
             ("url", pa.string()),
@@ -190,6 +197,8 @@ def convert_gz_to_parquet(gz_path: Path, output_path: Path, chunk_size: int = 10
         logger.info("Converting %s...", gz_path.name)
 
         buf = {
+            "collection": [],
+            "shard_file": [],
             "surt": [],
             "ts": [],
             "url": [],
@@ -216,6 +225,9 @@ def convert_gz_to_parquet(gz_path: Path, output_path: Path, chunk_size: int = 10
                     surt, ts, url, meta = parsed
                     host = _extract_host(url)
                     host_rev = _host_to_rev(host)
+
+                    buf["collection"].append(collection)
+                    buf["shard_file"].append(shard_file)
 
                     buf["surt"].append(surt)
                     buf["ts"].append(ts)

@@ -1374,6 +1374,43 @@ class PipelineOrchestrator:
                 if rebuild.returncode != 0:
                     logger.error(f"Failed to rebuild legacy parquet files for {collection} (exit {rebuild.returncode})")
                     return False
+
+            # Ensure derived parquet shards carry required provenance columns.
+            # Rewriting sorted parquet cannot add columns; repair must happen here.
+            def _has_provenance_cols(p: Path) -> bool:
+                try:
+                    pf = pq.ParquetFile(p)
+                    names = set(pf.schema_arrow.names)
+                    return {"collection", "shard_file"}.issubset(names)
+                except Exception:
+                    return False
+
+            any_missing_provenance = False
+            for p in parquet_dir.glob("cdx-*.parquet"):
+                if not _has_provenance_cols(p):
+                    any_missing_provenance = True
+                    break
+
+            if any_missing_provenance:
+                logger.warning(
+                    f"Found parquet shard(s) missing required columns {{'collection','shard_file'}} for {collection}; repairing before sort/rewrite"
+                )
+                repair_script = self._resolve_ccindex_helper_script("repair_legacy_parquet_columns.py")
+                repair_cmd = [
+                    sys.executable,
+                    str(repair_script),
+                    "--parquet-root",
+                    str(self.config.parquet_root),
+                    "--collections",
+                    str(collection),
+                    "--overwrite",
+                    "--compression",
+                    "zstd",
+                ]
+                repair_rc = subprocess.run(repair_cmd).returncode
+                if repair_rc != 0:
+                    logger.error(f"Failed to repair parquet provenance columns for {collection} (exit {repair_rc})")
+                    return False
         except Exception as e:
             logger.warning(f"Legacy schema check skipped due to error: {e}")
         

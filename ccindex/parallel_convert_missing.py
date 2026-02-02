@@ -1,15 +1,31 @@
 #!/usr/bin/env python3
+"""Parallel conversion of missing .gz files to canonical CC Parquet shards.
+
+This script exists as an operational helper: find CC index shard .gz files that
+do not yet have a corresponding .parquet output and convert them in parallel.
+
+Critical invariant: produced Parquet shards must include provenance columns
+`collection` and `shard_file`.
+
+Implementation note:
+- We delegate the actual conversion logic to `bulk_convert_gz_to_parquet.py` so
+    the schema stays in-sync with the main pipeline.
 """
-Parallel conversion of missing .gz files to .parquet with memory management
-"""
-import gzip
-import json
-import pyarrow as pa
-import pyarrow.parquet as pq
+
+from __future__ import annotations
+
 from pathlib import Path
-import gc
-from multiprocessing import Pool, cpu_count
+from multiprocessing import Pool
+
 import psutil
+import pyarrow.parquet as pq
+
+try:
+        # When run as part of the installed package.
+        from common_crawl_search_engine.ccindex.bulk_convert_gz_to_parquet import convert_gz_to_parquet
+except Exception:
+        # When run directly from this folder.
+        from bulk_convert_gz_to_parquet import convert_gz_to_parquet
 
 CCINDEX_ROOT = Path("/storage/ccindex")
 # Canonical parquet layout is cc_pointers_by_collection/<year>/<collection>/.
@@ -49,77 +65,27 @@ def convert_one_file(args):
     
     try:
         parquet_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        schema = pa.schema([
-            ('url', pa.string()),
-            ('domain', pa.string()),
-            ('timestamp', pa.string()),
-            ('warc_filename', pa.string()),
-            ('warc_record_offset', pa.int64()),
-            ('warc_record_length', pa.int64()),
-        ])
-        
-        writer = None
-        chunk = []
+
+        ok = bool(convert_gz_to_parquet(gz_path, parquet_path, chunk_size=int(CHUNK_SIZE)))
+        if not ok:
+            if parquet_path.exists():
+                parquet_path.unlink(missing_ok=True)
+            return (False, gz_path.name, 0, 0, "converter returned failure")
+
         total_records = 0
-        
-        with gzip.open(gz_path, 'rt', encoding='utf-8', errors='replace') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                try:
-                    parts = line.split()
-                    if len(parts) < 3:
-                        continue
-                    
-                    timestamp = parts[1]
-                    json_data = json.loads(' '.join(parts[2:]))
-                    
-                    url = json_data.get('url', '')
-                    if not url:
-                        continue
-                    
-                    domain = url.split('/')[2] if len(url.split('/')) > 2 else ''
-                    
-                    chunk.append({
-                        'url': url,
-                        'domain': domain,
-                        'timestamp': timestamp,
-                        'warc_filename': json_data.get('filename', ''),
-                        'warc_record_offset': int(json_data.get('offset', 0)),
-                        'warc_record_length': int(json_data.get('length', 0)),
-                    })
-                    
-                    if len(chunk) >= CHUNK_SIZE:
-                        batch = pa.RecordBatch.from_pylist(chunk, schema=schema)
-                        if writer is None:
-                            writer = pq.ParquetWriter(parquet_path, schema, compression='zstd')
-                        writer.write_batch(batch)
-                        total_records += len(chunk)
-                        chunk = []
-                        gc.collect()
-                        
-                except (json.JSONDecodeError, KeyError, ValueError, IndexError):
-                    continue
-        
-        if chunk:
-            batch = pa.RecordBatch.from_pylist(chunk, schema=schema)
-            if writer is None:
-                writer = pq.ParquetWriter(parquet_path, schema, compression='zstd')
-            writer.write_batch(batch)
-            total_records += len(chunk)
-        
-        if writer:
-            writer.close()
-        
+        try:
+            pf = pq.ParquetFile(str(parquet_path))
+            if pf.metadata is not None:
+                total_records = int(pf.metadata.num_rows or 0)
+        except Exception:
+            total_records = 0
+
         size_mb = parquet_path.stat().st_size / 1024 / 1024
         return (True, gz_path.name, total_records, size_mb, None)
-        
+
     except Exception as e:
         if parquet_path.exists():
-            parquet_path.unlink()
+            parquet_path.unlink(missing_ok=True)
         return (False, gz_path.name, 0, 0, str(e))
 
 def main() -> int:

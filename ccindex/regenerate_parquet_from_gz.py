@@ -60,16 +60,28 @@ def regenerate_parquet(gz_file: Path, output_parquet: Path, chunk_size: int = 1_
         temp_dir = output_parquet.parent / f".temp_{output_parquet.stem}"
         temp_dir.mkdir(exist_ok=True)
         
+        collection = gz_file.parent.name
+        shard_file = gz_file.name
+
         chunk_files = []
         current_chunk = []
         chunk_num = 0
         total_rows = 0
+
+        def _ensure_provenance_columns(t: pa.Table) -> pa.Table:
+            if "collection" not in t.column_names:
+                t = t.append_column("collection", pa.array([collection] * t.num_rows, pa.string()))
+            if "shard_file" not in t.column_names:
+                t = t.append_column("shard_file", pa.array([shard_file] * t.num_rows, pa.string()))
+            return t
         
         # Read and parse .gz file in chunks
         with gzip.open(gz_file, 'rt') as f:
             for i, line in enumerate(f, 1):
                 record = parse_cdx_line(line)
                 if record:
+                    record["collection"] = collection
+                    record["shard_file"] = shard_file
                     current_chunk.append(record)
                     total_rows += 1
                 
@@ -79,6 +91,7 @@ def regenerate_parquet(gz_file: Path, output_parquet: Path, chunk_size: int = 1_
                     
                     # Convert to Arrow table and write
                     table = pa.Table.from_pylist(current_chunk)
+                    table = _ensure_provenance_columns(table)
                     pq.write_table(table, chunk_file, compression='zstd')
                     
                     chunk_files.append(chunk_file)
@@ -94,6 +107,7 @@ def regenerate_parquet(gz_file: Path, output_parquet: Path, chunk_size: int = 1_
         if current_chunk:
             chunk_file = temp_dir / f"chunk_{chunk_num:04d}.parquet"
             table = pa.Table.from_pylist(current_chunk)
+            table = _ensure_provenance_columns(table)
             pq.write_table(table, chunk_file, compression='zstd')
             chunk_files.append(chunk_file)
             print(f"  Chunk {chunk_num}: {len(current_chunk):,} rows -> {chunk_file.name}")

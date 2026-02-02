@@ -15,6 +15,20 @@ import duckdb
 import pyarrow.parquet as pq
 
 
+REQUIRED_PROVENANCE_COLS = ("collection", "shard_file")
+
+
+def _require_provenance_columns(parquet_file: Path) -> None:
+    pf = pq.ParquetFile(parquet_file)
+    cols = set(pf.schema_arrow.names)
+    missing = [c for c in REQUIRED_PROVENANCE_COLS if c not in cols]
+    if missing:
+        raise ValueError(
+            f"Missing required columns {missing} in {parquet_file}. "
+            "Repair/reconvert the shard to add provenance columns before sorting."
+        )
+
+
 def check_if_sorted(parquet_file: Path, sample_size: int = 1000) -> Tuple[bool, str]:
     """Check if a parquet file is sorted by host_rev.
 
@@ -71,6 +85,7 @@ def sort_parquet_file(input_file: Path, output_file: Path, compression: str = "z
     """Sort a parquet file by host_rev, url, ts using DuckDB."""
 
     try:
+        _require_provenance_columns(input_file)
         con = duckdb.connect(":memory:")
         con.execute(
             f"""

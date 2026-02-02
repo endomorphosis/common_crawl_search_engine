@@ -11,6 +11,21 @@ from pathlib import Path
 from typing import Iterator, Optional, Sequence, Tuple
 
 import duckdb
+import pyarrow.parquet as pq
+
+
+REQUIRED_PROVENANCE_COLS = ("collection", "shard_file")
+
+
+def _require_provenance_columns(parquet_file: Path) -> None:
+    pf = pq.ParquetFile(str(parquet_file))
+    cols = set(pf.schema_arrow.names)
+    missing = [c for c in REQUIRED_PROVENANCE_COLS if c not in cols]
+    if missing:
+        raise ValueError(
+            f"Missing required columns {missing} in {parquet_file}. "
+            "Repair/reconvert the shard to add provenance columns before sorting."
+        )
 
 
 def _iter_parquet_files(
@@ -70,6 +85,8 @@ def sort_one(
 ) -> Tuple[bool, str]:
     if _should_skip(parquet_path, force=force):
         return False, "skip(already_marked_sorted)"
+
+    _require_provenance_columns(parquet_path)
 
     out_dir = parquet_path.parent
     old_size = parquet_path.stat().st_size

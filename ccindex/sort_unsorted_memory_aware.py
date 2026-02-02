@@ -12,6 +12,21 @@ from typing import Tuple
 
 import duckdb
 import psutil
+import pyarrow.parquet as pq
+
+
+REQUIRED_PROVENANCE_COLS = ("collection", "shard_file")
+
+
+def _require_provenance_columns(parquet_file: Path) -> None:
+    pf = pq.ParquetFile(str(parquet_file))
+    cols = set(pf.schema_arrow.names)
+    missing = [c for c in REQUIRED_PROVENANCE_COLS if c not in cols]
+    if missing:
+        raise ValueError(
+            f"Missing required columns {missing} in {parquet_file}. "
+            "Repair/reconvert the shard to add provenance columns before sorting."
+        )
 
 
 def get_available_memory_gb() -> float:
@@ -28,6 +43,7 @@ def sort_parquet_file(args: Tuple[Path, Path, int, float]) -> Tuple[Path, bool, 
     parquet_file, temp_dir, worker_id, memory_limit_gb = args
     
     try:
+        _require_provenance_columns(parquet_file)
         # Create worker-specific temp directory
         worker_temp = temp_dir / f"worker_{worker_id}"
         worker_temp.mkdir(parents=True, exist_ok=True)

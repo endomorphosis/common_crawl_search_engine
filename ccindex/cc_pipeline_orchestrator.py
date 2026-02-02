@@ -30,6 +30,7 @@ from collections import defaultdict
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from urllib.error import HTTPError, URLError
@@ -79,6 +80,10 @@ class PipelineConfig:
     rewrite_sorted_parquet: bool = False
     rewrite_sorted_limit: Optional[int] = None
     force_reindex: bool = False
+
+    # When sort/rewrite fails due to corrupted Parquet, attempt to self-heal by
+    # deleting the bad shard and rebuilding it from upstream artifacts.
+    autoheal_sort_failures: bool = True
 
     # Operational safety: when processing many collections (e.g. --filter all),
     # optionally restrict work to collections that already have parquet shards on disk.
@@ -1428,6 +1433,8 @@ class PipelineOrchestrator:
                 str(int(getattr(self.config, "heartbeat_seconds", 30) or 30)),
             ]
 
+            only_names: List[str] = []
+
             if bool(getattr(self.config, "rewrite_sorted_parquet", False)):
                 cmd.append("--rewrite-sorted")
 
@@ -1459,6 +1466,7 @@ class PipelineOrchestrator:
                             )
                             for p in picks:
                                 cmd.extend(["--only", p.name])
+                                only_names.append(p.name)
 
             row_group_size = getattr(self.config, "sort_row_group_size", None)
             if row_group_size is None:
@@ -1473,30 +1481,56 @@ class PipelineOrchestrator:
             if sort_temp_dir is not None:
                 cmd.extend(["--temp-dir", str(sort_temp_dir)])
 
-            # Stream output so progress is visible during long sorts.
-            result = subprocess.run(cmd)
-            if result.returncode != 0:
-                logger.error(f"Failed to sort/mark parquet for {collection} (exit {result.returncode})")
+            # Stream output so progress is visible during long sorts, and capture
+            # the tail so we can auto-heal shard-level failures.
+            rc = self._run_subprocess_with_heartbeat(
+                cmd,
+                heartbeat_label=f"sort:{collection}",
+                capture_tail_lines=250,
+            )
+            if rc != 0:
+                logger.error(f"Failed to sort/mark parquet for {collection} (exit {rc})")
 
                 # Auto-heal sort failures by retrying targeted sorts (with safer settings),
                 # then reconverting the failing parquet(s), and finally re-downloading the
                 # corresponding source .gz shard(s) if needed.
+                if not bool(getattr(self.config, "autoheal_sort_failures", True)):
+                    return False
+
+                expected_stems: Optional[Set[str]] = None
+                if only_names:
+                    expected_stems = set()
+                    for n in only_names:
+                        stem = n
+                        for suf in (".gz.sorted.parquet", ".gz.parquet", ".sorted.parquet", ".parquet", ".gz"):
+                            if stem.endswith(suf):
+                                stem = stem[: -len(suf)]
+                                break
+                        if stem.startswith("cdx-"):
+                            expected_stems.add(stem)
+
                 healed = self._autoheal_failed_sorts(
                     collection=collection,
                     parquet_dir=parquet_dir,
                     ccindex_dir=ccindex_dir,
                     sort_temp_dir=sort_temp_dir,
                     baseline_sort_mem_gb=sort_mem_gb,
+                    failure_output_tail=list(getattr(self, "_last_subprocess_output_tail", []) or []),
+                    expected_stems=expected_stems,
                 )
                 if not healed:
                     return False
 
                 # Re-run the full validate+mark pass to ensure everything is marked and
                 # cleanup logic can run.
-                result2 = subprocess.run(cmd)
-                if result2.returncode != 0:
+                rc2 = self._run_subprocess_with_heartbeat(
+                    cmd,
+                    heartbeat_label=f"sort:{collection}:retry",
+                    capture_tail_lines=250,
+                )
+                if rc2 != 0:
                     logger.error(
-                        f"Sort auto-heal ran but final validation still failed for {collection} (exit {result2.returncode})"
+                        f"Sort auto-heal ran but final validation still failed for {collection} (exit {rc2})"
                     )
                     return False
 
@@ -1532,6 +1566,8 @@ class PipelineOrchestrator:
         ccindex_dir: Path,
         sort_temp_dir: Path | None,
         baseline_sort_mem_gb: float,
+        failure_output_tail: Optional[List[str]] = None,
+        expected_stems: Optional[Set[str]] = None,
     ) -> bool:
         """Attempt to heal shard-level sort failures.
 
@@ -1543,7 +1579,10 @@ class PipelineOrchestrator:
         Returns True if all missing shards are healed.
         """
 
-        expected = {f"cdx-{i:05d}" for i in range(300)}
+        if expected_stems is not None:
+            expected = set(expected_stems)
+        else:
+            expected = {f"cdx-{i:05d}" for i in range(300)}
 
         def _sorted_path(stem: str) -> Path:
             return parquet_dir / f"{stem}.gz.sorted.parquet"
@@ -1551,11 +1590,70 @@ class PipelineOrchestrator:
         def _unsorted_path(stem: str) -> Path:
             return parquet_dir / f"{stem}.gz.parquet"
 
+        def _stem_from_any_name(name: str) -> Optional[str]:
+            n = str(name).strip()
+            if not n:
+                return None
+            # Normalize common pipeline suffixes.
+            for suf in (".gz.sorted.parquet", ".gz.parquet", ".sorted.parquet", ".parquet", ".gz"):
+                if n.endswith(suf):
+                    n = n[: -len(suf)]
+                    break
+            if not n.startswith("cdx-"):
+                return None
+            return n
+
+        failing_files: List[str] = []
+        if failure_output_tail:
+            # validate_and_mark_sorted prints lines like:
+            #   ❌ Error sorting cdx-00021.gz.sorted.parquet: <msg>
+            #   ❌ Error rewriting cdx-00021.gz.sorted.parquet: <msg>
+            rx = re.compile(r"^❌ Error (?:sorting|rewriting) (?P<fname>[^:]+):")
+            for line in failure_output_tail[-250:]:
+                m = rx.match(str(line).strip())
+                if m:
+                    failing_files.append(m.group("fname").strip())
+
+        failing_stems: Set[str] = set()
+        for fname in failing_files:
+            stem = _stem_from_any_name(fname)
+            if stem:
+                failing_stems.add(stem)
+
+        # If a shard was explicitly reported as failing, proactively delete its
+        # derived outputs so subsequent passes treat it as missing and rebuild it.
+        for stem in sorted(failing_stems):
+            s = _sorted_path(stem)
+            u = _unsorted_path(stem)
+            # In rewrite mode, failures typically refer to reading the already-sorted
+            # file. Delete it so we can rebuild from unsorted/gz.
+            try:
+                if s.exists():
+                    s.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+            # If the failing file was an unsorted parquet, drop it too.
+            # (Heuristic: if the tail references .gz.parquet, it was the unsorted input.)
+            if any((stem + ".gz.parquet") == f for f in failing_files):
+                try:
+                    if u.exists():
+                        u.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
         present_sorted = {p.name[: -len(".gz.sorted.parquet")] for p in parquet_dir.glob("cdx-*.gz.sorted.parquet")}
         missing = sorted(expected - present_sorted)
+
+        # If we have explicit failing stems, treat them as missing targets even if
+        # they were not missing by count (e.g. corrupt-but-present shards).
+        if failing_stems:
+            missing = sorted(set(missing) | set(failing_stems))
+
         if not missing:
-            # Might be a non-count-based failure; treat as not healable here.
-            logger.warning(f"Sort failed for {collection}, but no missing shards were detected")
+            logger.warning(
+                f"Sort failed for {collection}, but no missing shards were detected and no failing shard names were parsed"
+            )
             return False
 
         logger.warning(f"Attempting sort auto-heal for {collection}: missing {len(missing)} sorted shard(s): {missing[:10]}{'...' if len(missing) > 10 else ''}")
@@ -1648,6 +1746,8 @@ class PipelineOrchestrator:
                 str(ccindex_dir),
                 "--output-dir",
                 str(parquet_dir),
+                "--only",
+                f"{stem}.gz",
                 "--workers",
                 "1",
                 "--heartbeat-seconds",
@@ -2588,6 +2688,25 @@ def main() -> int:
     )
 
     parser.add_argument(
+        "--autoheal-sorts",
+        dest="autoheal_sort_failures",
+        action="store_true",
+        default=None,
+        help=(
+            "Enable auto-healing when sort/rewrite fails due to corrupted parquet: "
+            "delete the bad shard and rebuild (reconvert, or re-download then reconvert). "
+            "Default: enabled"
+        ),
+    )
+    parser.add_argument(
+        "--no-autoheal-sorts",
+        dest="autoheal_sort_failures",
+        action="store_false",
+        default=None,
+        help="Disable sort/rewrite auto-healing (pipeline stops on first sort failure)",
+    )
+
+    parser.add_argument(
         "--sort-row-group-size",
         type=int,
         default=None,
@@ -2673,6 +2792,8 @@ def main() -> int:
     config.sort_workers = args.sort_workers
     config.sort_memory_per_worker_gb = float(args.sort_memory_per_worker_gb)
     config.sort_temp_dir = args.sort_temp_dir
+    if getattr(args, "autoheal_sort_failures", None) is not None:
+        config.autoheal_sort_failures = bool(getattr(args, "autoheal_sort_failures"))
     config.sort_row_group_size = args.sort_row_group_size
     config.rewrite_sorted_parquet = bool(getattr(args, "rewrite_sorted_parquet", False))
     config.rewrite_sorted_limit = getattr(args, "rewrite_sorted_limit", None)
@@ -2727,6 +2848,7 @@ def main() -> int:
     logger.info(f"  sort_workers:           {config.sort_workers if config.sort_workers else config.max_workers}")
     logger.info(f"  sort_mem_per_worker_gb: {config.sort_memory_per_worker_gb}")
     logger.info(f"  sort_temp_dir:          {config.sort_temp_dir}")
+    logger.info(f"  autoheal_sort_failures: {bool(getattr(config, 'autoheal_sort_failures', True))}")
     logger.info(f"  sort_row_group_size:    {config.sort_row_group_size if config.sort_row_group_size is not None else 'auto'}")
     logger.info(f"  rewrite_sorted_parquet: {config.rewrite_sorted_parquet}")
     if config.rewrite_sorted_parquet:

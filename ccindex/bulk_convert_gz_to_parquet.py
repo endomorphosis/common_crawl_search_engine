@@ -291,10 +291,26 @@ def convert_collection(
     workers: int = 4,
     skip_existing: bool = True,
     heartbeat_seconds: int = 30,
+    only_files: Optional[set[str]] = None,
 ) -> tuple[int, int]:
     """Convert all .gz files in a collection directory."""
 
     gz_files = sorted(input_dir.glob("cdx-*.gz"))
+
+    if only_files:
+        normalized: set[str] = set()
+        for item in only_files:
+            name = str(item).strip()
+            if not name:
+                continue
+            if not name.endswith(".gz"):
+                name = name + ".gz"
+            normalized.add(name)
+
+        wanted = set(normalized)
+        gz_files = [p for p in gz_files if p.name in wanted]
+        if not gz_files:
+            logger.warning("No matching .gz files found for --only=%s", sorted(wanted))
     if not gz_files:
         logger.warning("No .gz files found in %s", input_dir)
         return 0, 0
@@ -401,6 +417,15 @@ def main(argv: list[str] | None = None) -> int:
         default=30,
         help="Print a periodic progress heartbeat every N seconds (default: 30)",
     )
+    parser.add_argument(
+        "--only",
+        action="append",
+        default=None,
+        help=(
+            "Convert only the specified shard filename (e.g. cdx-00021.gz). "
+            "Can be repeated. If an entry omits .gz, it will be appended."
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -408,12 +433,15 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Input directory does not exist: %s", args.input_dir)
         return 1
 
+    only_files = set(args.only) if args.only else None
+
     total, success = convert_collection(
         args.input_dir,
         args.output_dir,
         workers=args.workers,
         skip_existing=not args.overwrite,
         heartbeat_seconds=args.heartbeat_seconds,
+        only_files=only_files,
     )
 
     logger.info("Final: %d/%d files converted", success, total)

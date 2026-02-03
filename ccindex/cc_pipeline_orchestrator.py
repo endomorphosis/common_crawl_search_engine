@@ -37,7 +37,19 @@ from urllib.error import HTTPError, URLError
 
 import psutil
 
-from .validate_collection_completeness import CollectionValidator
+# Support running both as a package module and as a direct script.
+try:
+    from .validate_collection_completeness import CollectionValidator
+except ImportError:  # pragma: no cover
+    # When executed as a script (python path/to/cc_pipeline_orchestrator.py),
+    # relative imports have no package context. Add repo src/ to sys.path and
+    # fall back to absolute import.
+    _SRC_ROOT = Path(__file__).resolve().parents[2]
+    if str(_SRC_ROOT) not in sys.path:
+        sys.path.insert(0, str(_SRC_ROOT))
+    from common_crawl_search_engine.ccindex.validate_collection_completeness import (  # type: ignore
+        CollectionValidator,
+    )
 
 # Configure logging
 logging.basicConfig(
@@ -2294,8 +2306,9 @@ class PipelineOrchestrator:
         logger.info(f"  Converted: {status['parquet_count']}/{status['parquet_expected']}")
         logger.info(f"  Sorted: {status['sorted_count']}/{status['parquet_expected']}")
         logger.info(f"  Indexed: {status['duckdb_index_exists']} (sorted: {status['duckdb_index_sorted']})")
-        
-        if status['complete']:
+
+        rewrite_sorted = bool(getattr(self.config, "rewrite_sorted_parquet", False))
+        if status['complete'] and not rewrite_sorted:
             logger.info(f"  ✓ {collection} is complete, skipping")
             # Optional post-completion cleanup (useful on resume runs).
             if getattr(self.config, "cleanup_extraneous", False) or getattr(self.config, "cleanup_source_archives", False):
@@ -2497,8 +2510,10 @@ class PipelineOrchestrator:
         
         # Group collections by status
         incomplete = [c for c, s in self.collection_status.items() if not s.get('complete', False)]
+
+        rewrite_sorted = bool(getattr(self.config, "rewrite_sorted_parquet", False))
         
-        if not incomplete and not self.force_reindex:
+        if not incomplete and not self.force_reindex and not rewrite_sorted:
             logger.info("\n✓ All collections are complete!")
 
             # Even if no work is needed, we may still want to reclaim disk by
@@ -2520,10 +2535,10 @@ class PipelineOrchestrator:
                 for c in self.collections
                 if int((self.collection_status.get(c) or {}).get("parquet_count", 0) or 0) > 0
             ]
-            if self.force_reindex:
+            if self.force_reindex or rewrite_sorted:
                 targets = parquet_present
                 logger.info(
-                    f"\nForce-reindex enabled (existing-parquet-only): processing {len(targets)} collections with parquet on disk"
+                    f"\nProcessing {len(targets)} collections with parquet on disk (existing-parquet-only)"
                 )
             else:
                 targets = [c for c in targets if c in set(parquet_present)]
@@ -2531,10 +2546,13 @@ class PipelineOrchestrator:
                     f"\nProcessing {len(targets)} incomplete collections with parquet on disk (existing-parquet-only)..."
                 )
         else:
-            if self.force_reindex:
+            if self.force_reindex or rewrite_sorted:
                 # When forcing reindex, we still want to process collections even if complete.
                 targets = list(self.collections)
-                logger.info(f"\nForce-reindex enabled: processing {len(targets)} collections for DuckDB rebuild")
+                if self.force_reindex:
+                    logger.info(f"\nForce-reindex enabled: processing {len(targets)} collections for DuckDB rebuild")
+                else:
+                    logger.info(f"\nRewrite-sorted enabled: processing {len(targets)} collections for parquet rowgroup normalization")
             else:
                 logger.info(f"\nProcessing {len(targets)} incomplete collections...")
         
@@ -2748,8 +2766,11 @@ def main() -> int:
     parser.add_argument(
         "--sort-row-group-size",
         type=int,
-        default=None,
-        help="Optional Parquet row group size in rows when rewriting sorted shards (default: DuckDB default)",
+        default=71680,
+        help=(
+            "Parquet row group size in rows when writing/re-writing sorted shards. "
+            "Default: 71680 (≈4MB compressed in 2024 samples). Use 0 to let DuckDB choose."
+        ),
     )
 
     parser.add_argument(

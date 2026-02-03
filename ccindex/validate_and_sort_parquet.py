@@ -7,6 +7,7 @@ Ensures ALL parquet files are sorted before building the index.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -81,19 +82,32 @@ def check_if_sorted(parquet_file: Path, sample_size: int = 1000) -> Tuple[bool, 
         return False, f"Error: {e}"
 
 
-def sort_parquet_file(input_file: Path, output_file: Path, compression: str = "zstd") -> bool:
+def sort_parquet_file(
+    input_file: Path,
+    output_file: Path,
+    compression: str = "zstd",
+    row_group_size: int = 71680,
+) -> bool:
     """Sort a parquet file by host_rev, url, ts using DuckDB."""
 
     try:
         _require_provenance_columns(input_file)
         con = duckdb.connect(":memory:")
+        copy_opts = [f"FORMAT 'parquet'", f"COMPRESSION '{compression}'"]
+        try:
+            rgs = int(row_group_size)
+            if rgs > 0:
+                copy_opts.append(f"ROW_GROUP_SIZE {rgs}")
+        except Exception:
+            pass
+
         con.execute(
             f"""
             COPY (
                 SELECT * FROM read_parquet('{input_file}')
                 ORDER BY host_rev, url, ts
             )
-            TO '{output_file}' (FORMAT 'parquet', COMPRESSION '{compression}')
+            TO '{output_file}' ({', '.join(copy_opts)})
         """
         )
         con.close()
@@ -112,6 +126,15 @@ def main() -> int:
         "--mark-sorted",
         action="store_true",
         help="Rename sorted files to *.sorted.parquet (validator/pipeline convention)",
+    )
+    ap.add_argument(
+        "--row-group-size",
+        type=int,
+        default=int(os.environ.get("CC_SORT_ROW_GROUP_SIZE", "71680")),
+        help=(
+            "Parquet row group size in rows for sorted outputs. "
+            "Default: env CC_SORT_ROW_GROUP_SIZE else 71680. Use 0 to let DuckDB choose."
+        ),
     )
     ap.add_argument("--output", type=str, help="Output file for list of sorted files")
 
@@ -213,7 +236,7 @@ def main() -> int:
             sorted_tmp = unsorted_file.with_suffix(".parquet.sorted.tmp")
             final_path = _marked_name(unsorted_file) if args.mark_sorted else unsorted_file
 
-            if sort_parquet_file(unsorted_file, sorted_tmp):
+            if sort_parquet_file(unsorted_file, sorted_tmp, row_group_size=int(args.row_group_size)):
                 # Verify it's now sorted
                 is_sorted, reason = check_if_sorted(sorted_tmp)
 

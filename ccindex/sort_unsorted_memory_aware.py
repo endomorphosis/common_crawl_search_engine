@@ -35,12 +35,12 @@ def get_available_memory_gb() -> float:
     return mem.available / (1024 ** 3)
 
 
-def sort_parquet_file(args: Tuple[Path, Path, int, float]) -> Tuple[Path, bool, str]:
+def sort_parquet_file(args: Tuple[Path, Path, int, float, int]) -> Tuple[Path, bool, str]:
     """
     Sort a single parquet file with memory limits.
     Returns (file, success, message)
     """
-    parquet_file, temp_dir, worker_id, memory_limit_gb = args
+    parquet_file, temp_dir, worker_id, memory_limit_gb, row_group_size = args
     
     try:
         _require_provenance_columns(parquet_file)
@@ -57,13 +57,23 @@ def sort_parquet_file(args: Tuple[Path, Path, int, float]) -> Tuple[Path, bool, 
         con.execute("SET preserve_insertion_order=false")
         con.execute("SET threads=1")
         
-        con.execute(f"""
+        copy_opts = ["FORMAT 'parquet'", "COMPRESSION 'zstd'"]
+        try:
+            rgs = int(row_group_size)
+            if rgs > 0:
+                copy_opts.append(f"ROW_GROUP_SIZE {rgs}")
+        except Exception:
+            pass
+
+        con.execute(
+            f"""
             COPY (
                 SELECT * FROM read_parquet('{parquet_file}')
                 ORDER BY host_rev, url, ts
             )
-            TO '{sorted_tmp}' (FORMAT 'parquet', COMPRESSION 'zstd')
-        """)
+            TO '{sorted_tmp}' ({', '.join(copy_opts)})
+        """
+        )
         con.close()
         
         # Verify it's sorted
@@ -142,6 +152,15 @@ def main() -> int:
     ap.add_argument("--memory-per-worker", type=float, default=2.5, help="GB per worker")
     ap.add_argument("--reserve-memory", type=float, default=10, help="GB to reserve for system")
     ap.add_argument("--temp-dir", default="/tmp/sort_temp", help="Temp directory")
+    ap.add_argument(
+        "--row-group-size",
+        type=int,
+        default=int(os.environ.get("CC_SORT_ROW_GROUP_SIZE", "71680")),
+        help=(
+            "Parquet row group size in rows for output shards. "
+            "Default: env CC_SORT_ROW_GROUP_SIZE else 71680. Use 0 to let DuckDB choose."
+        ),
+    )
     
     args = ap.parse_args()
     
@@ -211,7 +230,7 @@ def main() -> int:
     # Submit jobs with memory checking
     for i, pq_file in enumerate(unsorted_files):
         worker_id = i % safe_workers
-        job_args = (pq_file, temp_dir, worker_id, args.memory_per_worker)
+        job_args = (pq_file, temp_dir, worker_id, args.memory_per_worker, int(args.row_group_size))
         
         print(f"[{i+1}/{len(unsorted_files)}] Submitting: {pq_file.name}", flush=True)
         result = pool.submit(sort_parquet_file, job_args)

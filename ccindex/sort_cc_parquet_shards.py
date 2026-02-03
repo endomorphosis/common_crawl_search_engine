@@ -80,6 +80,7 @@ def sort_one(
     parquet_path: Path,
     min_free_gb: float,
     temp_dir: Optional[Path],
+    row_group_size: Optional[int],
     force: bool,
     dry_run: bool,
 ) -> Tuple[bool, str]:
@@ -111,12 +112,21 @@ def sort_one(
         con.execute(f"PRAGMA temp_directory='{str(temp_dir)}'")
 
     # Sort by the key we use for range/offset lookups.
+    copy_opts = ["FORMAT PARQUET", "COMPRESSION ZSTD"]
+    if row_group_size is not None:
+        try:
+            rgs = int(row_group_size)
+            if rgs > 0:
+                copy_opts.append(f"ROW_GROUP_SIZE {rgs}")
+        except Exception:
+            pass
+
     q = (
         "COPY ("
         "  SELECT * FROM read_parquet(?) "
         "  ORDER BY host_rev, url, ts"
         ") TO '" + str(tmp_path).replace("'", "''") + "' "
-        "(FORMAT PARQUET, COMPRESSION ZSTD)"
+        "(" + ", ".join(copy_opts) + ")"
     )
     con.execute(q, [str(parquet_path)])
 
@@ -145,6 +155,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--duckdb-tmp", type=str, default=None, help="Optional DuckDB temp spill directory")
     ap.add_argument("--threads", type=int, default=2, help="DuckDB threads to use")
     ap.add_argument(
+        "--row-group-size",
+        type=int,
+        default=int(os.environ.get("CC_SORT_ROW_GROUP_SIZE", "71680")),
+        help=(
+            "Parquet row group size in rows for output shards. "
+            "Default: env CC_SORT_ROW_GROUP_SIZE else 71680. Use 0 to let DuckDB choose."
+        ),
+    )
+    ap.add_argument(
         "--zfs-dataset",
         type=str,
         default=None,
@@ -163,6 +182,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--dry-run", action="store_true", default=False, help="Print what would be done without writing")
 
     args = ap.parse_args(argv)
+
+    row_group_size: Optional[int] = args.row_group_size
+    if row_group_size is not None and int(row_group_size) <= 0:
+        row_group_size = None
 
     parquet_root = Path(args.parquet_root).expanduser().resolve()
     tmp_dir = Path(args.duckdb_tmp).expanduser().resolve() if args.duckdb_tmp else None
@@ -210,6 +233,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             p,
             min_free_gb=float(args.min_free_gb),
             temp_dir=tmp_dir,
+            row_group_size=row_group_size,
             force=bool(args.force),
             dry_run=bool(args.dry_run),
         )

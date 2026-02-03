@@ -629,8 +629,12 @@ def main() -> int:
     ap.add_argument(
         "--row-group-size",
         type=int,
-        default=None,
-        help="Optional Parquet row group size in rows when rewriting sorted shards (default: DuckDB default)",
+        default=int(os.environ.get("CC_SORT_ROW_GROUP_SIZE", "71680")),
+        help=(
+            "Parquet row group size in rows when writing/re-writing sorted shards. "
+            "Default: env CC_SORT_ROW_GROUP_SIZE else 71680 (≈4MB compressed in 2024 samples). "
+            "Use 0 to let DuckDB choose."
+        ),
     )
 
     ap.add_argument(
@@ -653,7 +657,7 @@ def main() -> int:
         type=int,
         default=None,
         help=(
-            "Target row group size in MB for deciding whether a shard needs rewrite (default: env CC_SORT_ROW_GROUP_TARGET_MB, else 128). "
+            "Target row group size in MB for deciding whether a shard needs rewrite (default: env CC_SORT_ROW_GROUP_TARGET_MB, else 4). "
             "Used only with --rewrite-sorted-if-needed."
         ),
     )
@@ -699,6 +703,17 @@ def main() -> int:
     )
 
     args = ap.parse_args()
+
+    # Normalize: allow users to disable explicit row-group sizing.
+    if args.row_group_size is not None and int(args.row_group_size) <= 0:
+        args.row_group_size = None
+
+    # Default rewrite target MB to match our standard row group sizing.
+    if args.rewrite_target_mb is None:
+        try:
+            args.rewrite_target_mb = int(os.environ.get("CC_SORT_ROW_GROUP_TARGET_MB", "4"))
+        except Exception:
+            args.rewrite_target_mb = 4
 
     parquet_root = Path(args.parquet_root).expanduser().resolve()
 

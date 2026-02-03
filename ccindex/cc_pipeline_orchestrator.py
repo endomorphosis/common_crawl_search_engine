@@ -1348,6 +1348,25 @@ class PipelineOrchestrator:
             logger.error(f"Parquet directory does not exist: {parquet_dir}")
             return False
 
+        # If a prior run left both cdx-XXXXX.gz.parquet and cdx-XXXXX.gz.sorted.parquet,
+        # treat the unsorted file as a duplicate artifact and remove it up-front.
+        # This prevents validate_and_mark_sorted from attempting an unnecessary sort
+        # (which can OOM under tight memory constraints) and aligns with the cleanup
+        # we do after successful runs.
+        removed_dupes = 0
+        for sorted_file in parquet_dir.glob("cdx-*.gz.sorted.parquet"):
+            unsorted_candidate = sorted_file.with_name(
+                sorted_file.name.replace(".gz.sorted.parquet", ".gz.parquet")
+            )
+            if unsorted_candidate.exists():
+                try:
+                    unsorted_candidate.unlink()
+                    removed_dupes += 1
+                except Exception as e:
+                    logger.warning(f"Failed to remove duplicate unsorted parquet {unsorted_candidate}: {e}")
+        if removed_dupes:
+            logger.info(f"Pre-cleaned {removed_dupes} duplicate unsorted parquet file(s) for {collection}")
+
         # Some older/partial runs produced parquet files without the required
         # columns for downstream sorting/indexing (host_rev/url/ts). Detect and
         # rebuild those in-place before attempting to sort.
@@ -2556,13 +2575,20 @@ class PipelineOrchestrator:
             else:
                 logger.info(f"\nProcessing {len(targets)} incomplete collections...")
         
-        # Process incomplete collections
+        # Process collections
+        failed_collections: List[str] = []
+        continue_on_error = bool(rewrite_sorted)
+
         for collection in targets:
             ok = self.process_collection(collection)
             # Rescan to update status (even on failure) so the summary reflects
             # any successful work done before the failure.
             self.collection_status[collection] = self.validator.validate_collection(collection)
             if not ok:
+                failed_collections.append(collection)
+                if continue_on_error:
+                    logger.error(f"Failed to process {collection}; continuing (rewrite-sorted mode)")
+                    continue
                 logger.error(f"Failed to process {collection}, stopping pipeline")
                 break
         
@@ -2581,6 +2607,11 @@ class PipelineOrchestrator:
                 s = self.collection_status[c]
                 pct = (s['sorted_count'] / s['parquet_expected'] * 100) if s['parquet_expected'] > 0 else 0
                 logger.info(f"  {c}: {pct:.1f}% sorted ({s['sorted_count']}/{s['parquet_expected']})")
+
+        if failed_collections:
+            logger.info(f"\nFailed collections ({len(failed_collections)}):")
+            for c in failed_collections:
+                logger.info(f"  {c}")
         
         # Build meta-indexes only after a full-year run is complete.
         # If the user filtered to a single collection (e.g. '2024-26'), skip.

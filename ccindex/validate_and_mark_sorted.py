@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+import json
 import multiprocessing
 import os
 import statistics
@@ -854,6 +855,8 @@ def main() -> int:
 
     parquet_root = Path(args.parquet_root).expanduser().resolve()
 
+    normalized_marker_path = parquet_root / ".parquet_normalized.json"
+
     if not parquet_root.exists():
         print(f"❌ ERROR: Parquet root not found: {parquet_root}")
         return 1
@@ -994,10 +997,17 @@ def main() -> int:
         temp_root.mkdir(parents=True, exist_ok=True)
 
         rewrite_files: List[Path] = []
+        rewrite_if_needed_enabled = False
+        rewrite_require_cols: set[str] = set()
+        rewrite_target_mb: Optional[int] = None
+        rewrite_target_rows: Optional[int] = None
+        rewrite_missing_cols = 0
+        rewrite_planned = 0
         if args.rewrite_sorted:
             # Only rewrite already-marked sorted files.
             rewrite_files = list(already_marked)
             if args.rewrite_sorted_if_needed and rewrite_files:
+                rewrite_if_needed_enabled = True
                 # Decide target MB.
                 target_mb = args.rewrite_target_mb
                 if target_mb is None:
@@ -1006,12 +1016,16 @@ def main() -> int:
                     except Exception:
                         target_mb = 128
 
+                rewrite_target_mb = int(target_mb) if target_mb is not None else None
+
                 # Decide required columns.
                 required_cols: set[str]
                 if args.rewrite_require_column:
                     required_cols = {str(c).strip() for c in args.rewrite_require_column if str(c).strip()}
                 else:
                     required_cols = {"collection", "shard_file"}
+
+                rewrite_require_cols = set(required_cols)
 
                 keep: List[Path] = []
                 skipped = 0
@@ -1020,6 +1034,7 @@ def main() -> int:
                 example_lines: List[str] = []
 
                 target_rows = args.row_group_size if args.row_group_size is not None else None
+                rewrite_target_rows = int(target_rows) if target_rows is not None else None
                 for p in rewrite_files:
                     needs, reasons = _parquet_rewrite_reasons(
                         p,
@@ -1047,6 +1062,8 @@ def main() -> int:
                     else:
                         skipped += 1
                 rewrite_files = keep
+                rewrite_missing_cols = int(missing_cols)
+                rewrite_planned = int(len(rewrite_files))
                 print(
                     f"Rewrite-if-needed enabled: will rewrite {len(rewrite_files)} shard(s), skip {skipped} already-optimized shard(s) "
                     f"(target_rows={int(target_rows) if target_rows is not None else None}, target≈{target_mb}MB, tol=±{float(args.rewrite_tolerance):.2f}, require_cols={sorted(required_cols)})"
@@ -1313,6 +1330,43 @@ def main() -> int:
             print(f"  Total files sorted (marked + newly marked): {total_sorted}/{len(all_files)}")
         else:
             print(f"  Total sorted files: {total_sorted + sorted_count}/{len(all_files)}")
+
+        # If rewrite-if-needed is enabled and the full run succeeded, write a marker
+        # so the orchestrator can skip Stage 3 on future reruns.
+        if (
+            bool(args.rewrite_sorted)
+            and bool(args.rewrite_sorted_if_needed)
+            and not args.verify_only
+            and not args.only
+            and failed_count == 0
+            and rewrite_missing_cols == 0
+        ):
+            try:
+                # Provide defaults even when there were no already-marked shards.
+                row_group_size = int(args.row_group_size) if args.row_group_size is not None else None
+                required_cols = (
+                    {str(c).strip() for c in args.rewrite_require_column if str(c).strip()}
+                    if args.rewrite_require_column
+                    else {"collection", "shard_file"}
+                )
+                payload = {
+                    "ok": True,
+                    "parquet_root": str(parquet_root),
+                    "file_count": int(len(all_files)),
+                    "sorted_count": int(len(all_files)),
+                    "row_group_size": row_group_size,
+                    "compression": "zstd",
+                    "rewrite_target_mb": int(args.rewrite_target_mb) if args.rewrite_target_mb is not None else None,
+                    "rewrite_tolerance": float(args.rewrite_tolerance),
+                    "required_columns": sorted(required_cols),
+                    "planned_rewrites": int(rewrite_planned),
+                    "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                tmp = normalized_marker_path.with_suffix(normalized_marker_path.suffix + ".tmp")
+                tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                os.replace(tmp, normalized_marker_path)
+            except Exception:
+                pass
 
     if unsorted_files and not args.sort_unsorted:
         print()

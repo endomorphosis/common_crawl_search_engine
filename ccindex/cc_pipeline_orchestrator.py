@@ -1003,6 +1003,54 @@ class PipelineOrchestrator:
 
             return False, "dirty (" + ", ".join(parts) + ")"
         return True, f"up-to-date ({len(exp_keys)} files)"
+
+    def _parquet_normalized_marker_ok(
+        self,
+        *,
+        parquet_root: Path,
+        expected_row_group_size: Optional[int],
+        require_columns: Optional[Set[str]] = None,
+    ) -> tuple[bool, str]:
+        """Check whether a collection's Parquet normalization marker matches current expectations."""
+
+        marker = (Path(parquet_root) / ".parquet_normalized.json").resolve()
+        if not marker.exists():
+            return False, "no normalization marker"
+
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+        except Exception as e:
+            return False, f"bad marker json: {e}"
+
+        if not bool(data.get("ok", False)):
+            return False, "marker not ok"
+
+        if str(data.get("compression", "")).lower() != "zstd":
+            return False, f"marker compression={data.get('compression')}"
+
+        if expected_row_group_size is not None:
+            try:
+                if int(data.get("row_group_size")) != int(expected_row_group_size):
+                    return False, f"marker row_group_size={data.get('row_group_size')} expected={expected_row_group_size}"
+            except Exception:
+                return False, "marker missing row_group_size"
+
+        req = set(require_columns or {"collection", "shard_file"})
+        have_cols = set(data.get("required_columns") or [])
+        if not req.issubset(have_cols):
+            return False, f"marker required_columns missing {sorted(req - have_cols)}"
+
+        try:
+            expected_files = len(self._iter_candidate_parquet_files(Path(parquet_root)))
+            marker_files = int(data.get("file_count")) if data.get("file_count") is not None else None
+            if marker_files is not None and marker_files != expected_files:
+                return False, f"marker file_count={marker_files} expected={expected_files}"
+        except Exception:
+            pass
+
+        created_at = data.get("created_at")
+        suffix = f"created_at={created_at}" if created_at else str(marker.name)
+        return True, f"marker ok ({suffix})"
         
     def get_all_collections(self) -> List[str]:
         """Get all available CC collections using validator"""
@@ -2496,15 +2544,66 @@ class PipelineOrchestrator:
         
         # Stage 3: Sort (optionally rewrite already-sorted shards to apply an optimized row-group-size)
         force_sort = bool(getattr(self.config, "rewrite_sorted_parquet", False))
-        if force_sort or status['sorted_count'] < status['parquet_expected']:
+        needs_sort = bool(status['sorted_count'] < status['parquet_expected'])
+        did_stage3 = False
+
+        if force_sort or needs_sort:
             if force_sort:
-                logger.info("  Stage 3: Rewriting sorted parquet files (row-group optimization enabled)...")
+                # If a prior successful rewrite-normalization run already produced a
+                # marker matching our current expectations, skip Stage 3 entirely.
+                parquet_dir = self._get_collection_parquet_dir(collection)
+                expected_rgs = getattr(self.config, "sort_row_group_size", None)
+                try:
+                    expected_rgs = int(expected_rgs) if expected_rgs is not None else None
+                except Exception:
+                    expected_rgs = None
+
+                marker_ok, marker_detail = self._parquet_normalized_marker_ok(
+                    parquet_root=parquet_dir,
+                    expected_row_group_size=expected_rgs,
+                    require_columns={"collection", "shard_file"},
+                )
+                sorted_complete = bool(status.get("sorted_count", 0) == status.get("parquet_expected", 0))
+
+                # Secondary skip: if indexes already match current Parquet fingerprints,
+                # treat the collection as known-good and avoid rescanning Parquet.
+                idx_skip = False
+                idx_detail = ""
+                if (not marker_ok) and sorted_complete and bool(getattr(self.config, "existing_parquet_only", False)):
+                    try:
+                        idx_db = (self.config.duckdb_collection_root / f"{collection}.duckdb").resolve()
+                        idx_ok, idx_d = self._duckdb_fingerprints_up_to_date(db_path=idx_db, parquet_root=parquet_dir)
+                        idx_detail = f"index:{idx_d}"
+
+                        rg_ok = True
+                        rg_d = "disabled"
+                        if bool(getattr(self.config, "build_domain_rowgroup_index", True)):
+                            rg_db = self._domain_rowgroup_index_path(collection)
+                            rg_ok, rg_d = self._duckdb_fingerprints_up_to_date(db_path=rg_db, parquet_root=parquet_dir)
+                            idx_detail += f"; rowgroup_index:{rg_d}"
+
+                        if idx_ok and rg_ok:
+                            idx_skip = True
+                    except Exception:
+                        idx_skip = False
+
+                if (marker_ok and sorted_complete) or idx_skip:
+                    why = marker_detail if marker_ok else idx_detail
+                    logger.info(f"  ✓ Stage 3: Parquet already normalized; skipping ({why})")
+                else:
+                    logger.info("  Stage 3: Rewriting sorted parquet files (row-group optimization enabled)...")
+                    if not self.sort_collection(collection):
+                        return False
+                    did_stage3 = True
             else:
                 logger.info(f"  Stage 3: Sorting {status['parquet_expected'] - status['sorted_count']} parquet files...")
-            if not self.sort_collection(collection):
-                return False
-            status = self.validator.validate_collection(collection)
-            logger.info(f"  ✓ Sorted: {status['sorted_count']}/{status['parquet_expected']}")
+                if not self.sort_collection(collection):
+                    return False
+                did_stage3 = True
+
+            if did_stage3:
+                status = self.validator.validate_collection(collection)
+                logger.info(f"  ✓ Sorted: {status['sorted_count']}/{status['parquet_expected']}")
         else:
             logger.info(f"  ✓ Stage 3: Sorting complete ({status['sorted_count']}/{status['parquet_expected']})")
 

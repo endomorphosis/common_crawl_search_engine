@@ -303,6 +303,57 @@ def main() -> int:
         """
     )
 
+    # If the on-disk Parquet set changes (e.g., unsorted shards replaced by sorted
+    # shards, or shards deleted during cleanup), remove stale rows so the index
+    # stays correct across incremental reruns.
+    try:
+        target_paths = [str(p) for p in all_files]
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS cc_target_parquet_files (parquet_path VARCHAR PRIMARY KEY)")
+        con.execute("DELETE FROM cc_target_parquet_files")
+        if target_paths:
+            con.executemany(
+                "INSERT INTO cc_target_parquet_files (parquet_path) VALUES (?)",
+                [(p,) for p in target_paths],
+            )
+
+        stale_count = con.execute(
+            """
+            SELECT COUNT(*)
+            FROM cc_indexed_parquet_files
+            WHERE parquet_path NOT IN (SELECT parquet_path FROM cc_target_parquet_files)
+            """
+        ).fetchone()[0]
+        if int(stale_count or 0) > 0:
+            print(f"Pruning {int(stale_count):,} stale indexed parquet file(s) (no longer present under parquet-root)")
+            con.execute(
+                """
+                DELETE FROM cc_domain_shards
+                WHERE source_path IN (
+                    SELECT parquet_path FROM cc_indexed_parquet_files
+                    WHERE parquet_path NOT IN (SELECT parquet_path FROM cc_target_parquet_files)
+                )
+                """
+            )
+            if args.extract_rowgroups:
+                con.execute(
+                    """
+                    DELETE FROM cc_parquet_rowgroups
+                    WHERE source_path IN (
+                        SELECT parquet_path FROM cc_indexed_parquet_files
+                        WHERE parquet_path NOT IN (SELECT parquet_path FROM cc_target_parquet_files)
+                    )
+                    """
+                )
+            con.execute(
+                """
+                DELETE FROM cc_indexed_parquet_files
+                WHERE parquet_path NOT IN (SELECT parquet_path FROM cc_target_parquet_files)
+                """
+            )
+            con.commit()
+    except Exception as e:
+        print(f"Warning: failed to prune stale indexed parquet files: {e}", file=sys.stderr)
+
     commit_every = max(1, int(args.batch_size or 10))
     total_domains = 0
     total_rowgroups = 0

@@ -898,6 +898,111 @@ class PipelineOrchestrator:
             return canonical
 
         return self.config.parquet_root / collection
+
+    def _iter_candidate_parquet_files(self, parquet_root: Path) -> List[Path]:
+        """List parquet shards for indexing/validation.
+
+        Mirrors the selection logic in the index builders:
+        - ignore hidden/temp directories
+        - prefer '*.sorted.parquet' shards when present
+        """
+
+        candidates: List[Path] = []
+        for p in parquet_root.rglob("*.parquet"):
+            try:
+                if not p.is_file():
+                    continue
+                rel = p.relative_to(parquet_root)
+                if any(part.startswith(".") for part in rel.parts[:-1]):
+                    continue
+                candidates.append(p)
+            except Exception:
+                continue
+
+        sorted_candidates = [p for p in candidates if p.name.endswith(".sorted.parquet")]
+        return sorted(sorted_candidates if sorted_candidates else candidates)
+
+    def _duckdb_fingerprints_up_to_date(self, *, db_path: Path, parquet_root: Path) -> tuple[bool, str]:
+        """Return (up_to_date, detail) based on cc_indexed_parquet_files."""
+
+        if not db_path.exists():
+            return False, "db missing"
+
+        files = self._iter_candidate_parquet_files(parquet_root)
+        expected: Dict[str, Tuple[int, int]] = {}
+        for p in files:
+            try:
+                st = p.stat()
+                expected[str(p)] = (int(st.st_size), int(st.st_mtime_ns))
+            except Exception:
+                expected[str(p)] = (-1, -1)
+
+        try:
+            import duckdb
+
+            conn = duckdb.connect(str(db_path), read_only=True)
+            try:
+                tables = {row[0] for row in conn.execute("SHOW TABLES").fetchall()}
+                if "cc_indexed_parquet_files" not in tables:
+                    return False, "no cc_indexed_parquet_files table"
+
+                rows = conn.execute(
+                    "SELECT parquet_path, size_bytes, mtime_ns FROM cc_indexed_parquet_files"
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception as e:
+            msg = str(e)
+            if "Conflicting lock is held" in msg or "Could not set lock" in msg or "conflicting" in msg.lower():
+                return False, "db locked"
+            return False, f"db unreadable: {e}"
+
+        have: Dict[str, Tuple[int, int]] = {}
+        for path, size_b, mt_ns in rows:
+            try:
+                have[str(path)] = (int(size_b), int(mt_ns))
+            except Exception:
+                have[str(path)] = (-1, -1)
+
+        exp_keys = set(expected.keys())
+        have_keys = set(have.keys())
+
+        missing = exp_keys - have_keys
+        extra = have_keys - exp_keys
+        mismatched = 0
+        mismatched_example: Optional[str] = None
+        for k in (exp_keys & have_keys):
+            if expected.get(k) != have.get(k):
+                mismatched += 1
+                if mismatched_example is None:
+                    try:
+                        exp_sz, exp_mt = expected.get(k, (-1, -1))
+                        have_sz, have_mt = have.get(k, (-1, -1))
+                        mismatched_example = f"{k} (expected sz={exp_sz},mt={exp_mt} got sz={have_sz},mt={have_mt})"
+                    except Exception:
+                        mismatched_example = str(k)
+
+        if missing or extra or mismatched:
+            parts: List[str] = [
+                f"expected={len(exp_keys)}",
+                f"missing={len(missing)}",
+                f"mismatched={mismatched}",
+                f"extra={len(extra)}",
+            ]
+            try:
+                if missing:
+                    ex = next(iter(missing))
+                    parts.append(f"missing_ex={Path(ex).name}")
+                if mismatched_example is not None:
+                    parts.append(f"mismatch_ex={mismatched_example}")
+                if extra:
+                    ex2 = next(iter(extra))
+                    parts.append(f"extra_ex={Path(ex2).name}")
+            except Exception:
+                pass
+
+            return False, "dirty (" + ", ".join(parts) + ")"
+        return True, f"up-to-date ({len(exp_keys)} files)"
         
     def get_all_collections(self) -> List[str]:
         """Get all available CC collections using validator"""
@@ -985,10 +1090,25 @@ class PipelineOrchestrator:
     def check_resources(self) -> bool:
         """Check if we have enough resources to proceed"""
         mem_gb = self.get_available_memory_gb()
-        if mem_gb < self.config.memory_limit_gb:
+        # For rewrite-only runs (parquet already on disk), the pipeline's general
+        # memory target can be overly conservative. Use a smaller effective
+        # requirement so a long year-wide rewrite doesn't abort unnecessarily.
+        effective_mem_limit = float(self.config.memory_limit_gb)
+        try:
+            rewrite_mode = bool(getattr(self.config, "rewrite_sorted_parquet", False))
+            parquet_only = bool(getattr(self.config, "existing_parquet_only", False))
+            if rewrite_mode and parquet_only:
+                sort_mem = float(getattr(self.config, "sort_memory_per_worker_gb", 4.0) or 4.0)
+                # Heuristic: rewriting typically streams and spills; require only
+                # modest headroom above per-worker cap.
+                effective_mem_limit = min(effective_mem_limit, max(2.0, sort_mem + 1.0))
+        except Exception:
+            pass
+
+        if mem_gb < effective_mem_limit:
             # Allow a small tolerance for normal fluctuations so we don't abort
             # when we're within ~5% (or 0.5GB) of the configured target.
-            limit = float(self.config.memory_limit_gb)
+            limit = float(effective_mem_limit)
             tolerance = max(0.5, 0.05 * limit)
             logger.warning(f"Low memory: {mem_gb:.1f} GB available, need {limit:.1f} GB")
             if mem_gb < (limit - tolerance):
@@ -2042,6 +2162,10 @@ class PipelineOrchestrator:
             "--parquet-root", str(parquet_dir),
             "--output-db", str(duckdb_path),
             "--extract-rowgroups",
+            "--db-lock-retries",
+            "120",
+            "--db-lock-sleep-seconds",
+            "2.0",
         ]
 
         def _extract_indexing_shard_stem(output_tail: List[str]) -> Optional[str]:
@@ -2394,32 +2518,62 @@ class PipelineOrchestrator:
         
         # Stage 4: Index
         # If we rewrote sorted parquet row groups, the rowgroup metadata must be rebuilt.
-        force_index = bool(getattr(self.config, "force_reindex", False)) or bool(getattr(self.config, "rewrite_sorted_parquet", False))
-        if force_index:
-            # Full rewrite implies full metadata rewrite; pilot rewrite should prefer incremental index update.
-            limit = getattr(self.config, "rewrite_sorted_limit", None)
-            if bool(getattr(self.config, "rewrite_sorted_parquet", False)) and limit is not None:
-                logger.info(f"  Stage 4: Incremental index refresh (pilot rewrite; limit={limit})")
-            else:
-                self._invalidate_duckdb_index(collection)
-                self._invalidate_domain_rowgroup_index(collection)
+        rewrite_sorted = bool(getattr(self.config, "rewrite_sorted_parquet", False))
+        force_reindex = bool(getattr(self.config, "force_reindex", False))
 
-        if force_index or (not status['duckdb_index_exists'] or not status['duckdb_index_sorted']):
-            logger.info(f"  Stage 4: Building DuckDB index (exists: {status['duckdb_index_exists']}, sorted: {status['duckdb_index_sorted']})...")
+        if force_reindex:
+            # Explicit operator intent: full rebuild.
+            self._invalidate_duckdb_index(collection)
+            self._invalidate_domain_rowgroup_index(collection)
+            status["duckdb_index_exists"] = False
+            status["duckdb_index_sorted"] = False
+
+        needs_index = (not bool(status["duckdb_index_exists"])) or (not bool(status["duckdb_index_sorted"]))
+        freshness_detail = ""
+        if rewrite_sorted and (not needs_index) and (not force_reindex):
+            # In rewrite mode, avoid rebuilding indexes on reruns when no parquet
+            # shards actually changed. Use the index DB's fingerprints to decide.
+            parquet_dir = self._get_collection_parquet_dir(collection)
+            duckdb_path = (self.config.duckdb_collection_root / f"{collection}.duckdb").resolve()
+            up_to_date, detail = self._duckdb_fingerprints_up_to_date(db_path=duckdb_path, parquet_root=parquet_dir)
+            freshness_detail = detail
+            if not up_to_date:
+                needs_index = True
+
+        if needs_index:
+            extra = f"; {freshness_detail}" if freshness_detail else ""
+            logger.info(
+                f"  Stage 4: Building DuckDB index (exists: {status['duckdb_index_exists']}, sorted: {status['duckdb_index_sorted']}){extra}..."
+            )
             if not self.build_index_for_collection(collection):
                 return False
-            # Re-verify after building
             status = self.validator.validate_collection(collection)
             logger.info(f"  ✓ Index built and verified: exists={status['duckdb_index_exists']}, sorted={status['duckdb_index_sorted']}")
         else:
-            logger.info(f"  ✓ Stage 4: Index complete and sorted")
+            if rewrite_sorted and freshness_detail:
+                logger.info(f"  ✓ Stage 4: Index up-to-date; skipping ({freshness_detail})")
+            else:
+                logger.info(f"  ✓ Stage 4: Index complete and sorted")
 
         # Stage 4.5: Build per-collection domain->rowgroup slice index (optional)
         if bool(getattr(self.config, "build_domain_rowgroup_index", True)):
-            logger.info("  Stage 4.5: Building domain rowgroup slice index (cc_domain_rowgroups)...")
-            if not self.build_domain_rowgroup_index_for_collection(collection):
-                return False
-            logger.info("  ✓ Stage 4.5: Domain rowgroup slice index built")
+            skip_rg = False
+            rg_detail = ""
+            if rewrite_sorted and (not force_reindex):
+                parquet_dir = self._get_collection_parquet_dir(collection)
+                out_db = self._domain_rowgroup_index_path(collection)
+                up_to_date, detail = self._duckdb_fingerprints_up_to_date(db_path=out_db, parquet_root=parquet_dir)
+                rg_detail = detail
+                if up_to_date:
+                    skip_rg = True
+
+            if skip_rg:
+                logger.info(f"  ✓ Stage 4.5: Domain rowgroup slice index up-to-date; skipping ({rg_detail})")
+            else:
+                logger.info("  Stage 4.5: Building domain rowgroup slice index (cc_domain_rowgroups)...")
+                if not self.build_domain_rowgroup_index_for_collection(collection):
+                    return False
+                logger.info("  ✓ Stage 4.5: Domain rowgroup slice index built")
         
         # Final re-validation gate: only claim completion if validator agrees.
         status = self.validator.validate_collection(collection)

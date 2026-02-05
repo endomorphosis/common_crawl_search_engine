@@ -5,9 +5,10 @@ Common Crawl Pipeline Orchestrator
 Unified system that orchestrates all pipeline phases:
 1. Download CC index .tar.gz files
 2. Convert to .gz.parquet files
-3. Sort parquet files by domain
-4. Build DuckDB pointer indexes
-5. Verify completeness and integrity
+3. Sort/normalize parquet files by domain
+4. Build per-collection DuckDB pointer indexes
+5. Build per-collection domain->rowgroup slice indexes (optional)
+6. Update per-year global domain+rowgroup index (optional)
 
 Replaces the older 1-year, 2-year, 5-year scripts with a unified approach.
 Uses existing validator and HUD scripts for consistency.
@@ -208,6 +209,9 @@ class PipelineOrchestrator:
         self.collection_status: Dict[str, dict] = {}
         self.force_reindex: bool = bool(getattr(config, "force_reindex", False))
         self._last_subprocess_output_tail: List[str] = []
+        # Track per-year global index updates so we don't redundantly rebuild the
+        # same year DB multiple times in a single run.
+        self._domain_year_index_updated_years: set[str] = set()
 
     def _invalidate_duckdb_index(self, collection: str) -> None:
         """Delete per-collection DuckDB index + marker files to force rebuild."""
@@ -816,7 +820,7 @@ class PipelineOrchestrator:
             (self.config.parquet_root / str(year)).resolve(),
         ]
 
-        did_any = False
+        parquet_roots: List[Path] = []
         for pq_root in candidates:
             try:
                 if not pq_root.exists():
@@ -824,10 +828,33 @@ class PipelineOrchestrator:
                 # Skip empty roots quickly.
                 if not any(pq_root.rglob("*.parquet")):
                     continue
+                parquet_roots.append(pq_root)
             except Exception:
                 continue
 
-            did_any = True
+        if not parquet_roots:
+            logger.warning(f"Domain-year index update requested, but no parquet roots found for year {year}")
+            return True
+
+        # Fast-path: if the output DB fingerprints match the on-disk Parquet set,
+        # skip this expensive stage entirely.
+        if out_db.exists() and not bool(getattr(self.config, "force_reindex", False)):
+            try:
+                ok_all = True
+                details: List[str] = []
+                for pq_root in parquet_roots:
+                    ok, detail = self._duckdb_fingerprints_up_to_date(db_path=out_db, parquet_root=pq_root)
+                    details.append(f"{pq_root}: {detail}")
+                    if not ok:
+                        ok_all = False
+                if ok_all:
+                    logger.info(f"[domain-year-index:{year}] Up-to-date; skipping ({'; '.join(details)})")
+                    return True
+                logger.info(f"[domain-year-index:{year}] Not up-to-date; updating ({'; '.join(details)})")
+            except Exception as e:
+                logger.warning(f"[domain-year-index:{year}] Freshness check failed; updating anyway: {e}")
+
+        for pq_root in parquet_roots:
             cmd = [
                 sys.executable,
                 "-u",
@@ -849,10 +876,6 @@ class PipelineOrchestrator:
             if rc != 0:
                 logger.error(f"Failed to update domain-year index for {year} from {pq_root} (exit {rc})")
                 return False
-
-        if not did_any:
-            logger.warning(f"Domain-year index update requested, but no parquet roots found for year {year}")
-            return True
 
         logger.info(f"Updated domain-year index for {year}: {out_db}")
         return True
@@ -2607,14 +2630,6 @@ class PipelineOrchestrator:
         else:
             logger.info(f"  ✓ Stage 3: Sorting complete ({status['sorted_count']}/{status['parquet_expected']})")
 
-        # Stage 3.5: Update global per-year domain+rowgroup metadata index (optional)
-        year = self._collection_year(collection)
-        if year and bool(getattr(self.config, "update_domain_year_index", False)):
-            logger.info(f"  Stage 3.5: Updating domain-year index for {year}...")
-            if not self._update_domain_year_index(year):
-                return False
-            logger.info(f"  ✓ Stage 3.5: Domain-year index updated for {year}")
-        
         # Stage 4: Index
         # If we rewrote sorted parquet row groups, the rowgroup metadata must be rebuilt.
         rewrite_sorted = bool(getattr(self.config, "rewrite_sorted_parquet", False))
@@ -2654,7 +2669,7 @@ class PipelineOrchestrator:
             else:
                 logger.info(f"  ✓ Stage 4: Index complete and sorted")
 
-        # Stage 4.5: Build per-collection domain->rowgroup slice index (optional)
+        # Stage 5: Build per-collection domain->rowgroup slice index (optional)
         if bool(getattr(self.config, "build_domain_rowgroup_index", True)):
             skip_rg = False
             rg_detail = ""
@@ -2667,12 +2682,12 @@ class PipelineOrchestrator:
                     skip_rg = True
 
             if skip_rg:
-                logger.info(f"  ✓ Stage 4.5: Domain rowgroup slice index up-to-date; skipping ({rg_detail})")
+                logger.info(f"  ✓ Stage 5: Domain rowgroup slice index up-to-date; skipping ({rg_detail})")
             else:
-                logger.info("  Stage 4.5: Building domain rowgroup slice index (cc_domain_rowgroups)...")
+                logger.info("  Stage 5: Building domain rowgroup slice index (cc_domain_rowgroups)...")
                 if not self.build_domain_rowgroup_index_for_collection(collection):
                     return False
-                logger.info("  ✓ Stage 4.5: Domain rowgroup slice index built")
+                logger.info("  ✓ Stage 5: Domain rowgroup slice index built")
         
         # Final re-validation gate: only claim completion if validator agrees.
         status = self.validator.validate_collection(collection)
@@ -2771,6 +2786,9 @@ class PipelineOrchestrator:
         logger.info("=" * 80)
         logger.info("Common Crawl Pipeline Orchestrator")
         logger.info("=" * 80)
+
+        # Per-run bookkeeping
+        self._domain_year_index_updated_years.clear()
         
         # Scan all collections
         self.scan_all_collections()
@@ -2831,6 +2849,7 @@ class PipelineOrchestrator:
         # Process collections
         failed_collections: List[str] = []
         continue_on_error = bool(rewrite_sorted)
+        completed_target_loop = True
 
         for collection in targets:
             ok = self.process_collection(collection)
@@ -2843,12 +2862,40 @@ class PipelineOrchestrator:
                     logger.error(f"Failed to process {collection}; continuing (rewrite-sorted mode)")
                     continue
                 logger.error(f"Failed to process {collection}, stopping pipeline")
+                completed_target_loop = False
                 break
+
+        # Stage 6: Update global per-year domain+rowgroup metadata index (optional)
+        # Run once per year, after all per-collection work is complete.
+        stage6_failed = False
+        update_domain_year_index = bool(getattr(self.config, "update_domain_year_index", False))
+        if completed_target_loop and update_domain_year_index:
+            years_to_update = sorted({y for y in (self._collection_year(c) for c in targets) if y})
+            if years_to_update:
+                logger.info("\n" + "=" * 80)
+                logger.info("Stage 6: Updating domain-year index(es)")
+                logger.info("=" * 80)
+                for year in years_to_update:
+                    if year in self._domain_year_index_updated_years:
+                        logger.info(f"✓ Stage 6: Domain-year index already handled for {year} this run; skipping")
+                        continue
+                    logger.info(f"Stage 6: Updating domain-year index for {year}...")
+                    if not self._update_domain_year_index(year):
+                        stage6_failed = True
+                        logger.error(f"Stage 6 failed for year {year}")
+                        break
+                    self._domain_year_index_updated_years.add(year)
+                    logger.info(f"✓ Stage 6: Domain-year index up-to-date for {year}")
+        elif update_domain_year_index:
+            logger.info("Skipping Stage 6 (domain-year index update) due to earlier pipeline stop")
         
         # Final summary
         logger.info("\n" + "=" * 80)
         logger.info("Pipeline Summary")
         logger.info("=" * 80)
+
+        if stage6_failed:
+            logger.warning("Stage 6 (domain-year index update) did not complete")
         
         complete = sum(1 for s in self.collection_status.values() if s.get('complete', False))
         logger.info(f"Complete: {complete}/{total} collections")
@@ -2868,7 +2915,7 @@ class PipelineOrchestrator:
         
         # Build meta-indexes only after a full-year run is complete.
         # If the user filtered to a single collection (e.g. '2024-26'), skip.
-        if not incomplete:
+        if (not incomplete) and (not stage6_failed):
             filter_str = (self.config.collections_filter or "").strip()
             is_full_year = len(filter_str) == 4 and filter_str.isdigit()
             if is_full_year:
@@ -3075,7 +3122,7 @@ def main() -> int:
         action="store_true",
         default=False,
         help=(
-            "After sorting each collection, incrementally update the per-year global domain+rowgroup index "
+            "After processing collections, update the per-year global domain+rowgroup index "
             "(cc_domain_shards + cc_parquet_rowgroups) using build_index_from_parquet.py"
         ),
     )

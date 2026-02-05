@@ -48,6 +48,43 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
+def _worker_scan_to_ipc(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Worker: scan one parquet file and write its segments to an Arrow IPC file.
+
+    Must be a top-level function so it can be pickled by multiprocessing.
+    """
+
+    pq_path = Path(job["parquet_path"]).resolve()
+    pq_root = Path(job["parquet_root"]).resolve()
+    tmp_dir = Path(job["temp_dir"]).resolve()
+    max_segments = job.get("max_segments_per_file")
+
+    try:
+        segs = _segment_rowgroup_host_revs(
+            parquet_path=pq_path,
+            parquet_root=pq_root,
+            max_segments_per_file=(int(max_segments) if max_segments is not None else None),
+        )
+    except Exception as e:
+        return {"ok": False, "parquet_path": str(pq_path), "error": str(e)}
+
+    try:
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        ipc_path = tmp_dir / f"rowgroups_{pq_path.name}_{os.getpid()}_{uuid4().hex}.arrow"
+        tbl = _segments_to_arrow(segs) if segs else pa.Table.from_batches([], schema=SEGMENT_SCHEMA)
+        with ipc_path.open("wb") as f:
+            with pa.ipc.new_file(f, tbl.schema) as writer:
+                writer.write_table(tbl)
+        return {
+            "ok": True,
+            "parquet_path": str(pq_path),
+            "ipc_path": str(ipc_path),
+            "segments": int(len(segs)),
+        }
+    except Exception as e:
+        return {"ok": False, "parquet_path": str(pq_path), "error": f"IPC write failed: {e}"}
+
+
 @dataclass
 class DomainRowGroupSegment:
     source_path: str
@@ -453,39 +490,6 @@ def main() -> int:
         print(f"Plan: {len(files)} files total; {skipped_files} unchanged; {len(to_process)} to process")
 
         t0 = time.time()
-
-        # Worker emits an Arrow IPC file per parquet file (avoids pickling huge Python lists).
-        def _worker_scan_to_ipc(job: Dict[str, Any]) -> Dict[str, Any]:
-            pq_path = Path(job["parquet_path"]).resolve()
-            pq_root = Path(job["parquet_root"]).resolve()
-            tmp_dir = Path(job["temp_dir"]).resolve()
-            max_segments = job.get("max_segments_per_file")
-
-            try:
-                segs = _segment_rowgroup_host_revs(
-                    parquet_path=pq_path,
-                    parquet_root=pq_root,
-                    max_segments_per_file=(int(max_segments) if max_segments is not None else None),
-                )
-            except Exception as e:
-                return {"ok": False, "parquet_path": str(pq_path), "error": str(e)}
-
-            # Write to IPC file
-            try:
-                tmp_dir.mkdir(parents=True, exist_ok=True)
-                ipc_path = tmp_dir / f"rowgroups_{pq_path.name}_{os.getpid()}_{uuid4().hex}.arrow"
-                tbl = _segments_to_arrow(segs) if segs else pa.Table.from_batches([], schema=SEGMENT_SCHEMA)
-                with ipc_path.open("wb") as f:
-                    with pa.ipc.new_file(f, tbl.schema) as writer:
-                        writer.write_table(tbl)
-                return {
-                    "ok": True,
-                    "parquet_path": str(pq_path),
-                    "ipc_path": str(ipc_path),
-                    "segments": int(len(segs)),
-                }
-            except Exception as e:
-                return {"ok": False, "parquet_path": str(pq_path), "error": f"IPC write failed: {e}"}
 
         max_segments_per_file = int(args.max_segments_per_file) if args.max_segments_per_file is not None else None
 

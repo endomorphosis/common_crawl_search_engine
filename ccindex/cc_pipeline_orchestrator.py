@@ -3072,7 +3072,10 @@ def main() -> int:
         "--sort-temp-dir",
         type=Path,
         default=None,
-        help="Temp directory for DuckDB sort spill (default: system temp)",
+        help=(
+            "Temp directory for DuckDB sort spill. Default: create <collection-parquet-dir>/.duckdb_sort_tmp "
+            "(same filesystem as outputs); fall back to system temp if it cannot be created."
+        ),
     )
 
     parser.add_argument(
@@ -3238,7 +3241,10 @@ def main() -> int:
     logger.info(f"  force_reindex:          {config.force_reindex}")
     logger.info(f"  sort_workers:           {config.sort_workers if config.sort_workers else config.max_workers}")
     logger.info(f"  sort_mem_per_worker_gb: {config.sort_memory_per_worker_gb}")
-    logger.info(f"  sort_temp_dir:          {config.sort_temp_dir}")
+    if config.sort_temp_dir is None:
+        logger.info("  sort_temp_dir:          (auto) <collection-parquet-dir>/.duckdb_sort_tmp")
+    else:
+        logger.info(f"  sort_temp_dir:          {config.sort_temp_dir}")
     logger.info(f"  autoheal_sort_failures: {bool(getattr(config, 'autoheal_sort_failures', True))}")
     logger.info(f"  sort_row_group_size:    {config.sort_row_group_size if config.sort_row_group_size is not None else 'auto'}")
     logger.info(f"  rewrite_sorted_parquet: {config.rewrite_sorted_parquet}")

@@ -109,6 +109,9 @@ class PipelineConfig:
     build_domain_rowgroup_index: bool = True
     domain_rowgroup_index_root: Optional[Path] = None
     domain_rowgroup_index_batch_size: int = 1
+    # Parallelism for building cc_domain_rowgroups. This controls parquet scanning parallelism
+    # (DuckDB writes remain single-threaded in the builder). If None, orchestrator will choose a safe default.
+    domain_rowgroup_index_workers: Optional[int] = None
 
     # Optional: maintain global per-year domain lookup DBs (cc_domain_shards + cc_parquet_rowgroups)
     # under a separate root (e.g. /storage/ccindex_duckdb/cc_domain_by_year_sorted).
@@ -2474,6 +2477,15 @@ class PipelineOrchestrator:
             batch_sz = 1
         batch_sz = max(1, min(32, int(batch_sz)))
 
+        try:
+            workers = getattr(self.config, "domain_rowgroup_index_workers", None)
+            if workers is None:
+                # Default: parallelize scans but keep it bounded (this is mostly I/O + parquet decode).
+                workers = min(8, int(getattr(self.config, "max_workers", 8) or 8))
+            workers = max(1, int(workers))
+        except Exception:
+            workers = 1
+
         cmd = [
             sys.executable,
             "-u",
@@ -2482,6 +2494,8 @@ class PipelineOrchestrator:
             str(parquet_dir),
             "--output-db",
             str(out_db),
+            "--workers",
+            str(int(workers)),
             "--batch-size",
             str(batch_sz),
         ]
@@ -3165,6 +3179,16 @@ def main() -> int:
         default=1,
         help="Commit every N parquet files while building the rowgroup slice index (default: 1)",
     )
+    parser.add_argument(
+        "--domain-rowgroup-index-workers",
+        type=int,
+        default=None,
+        help=(
+            "Parallel workers for building the per-collection domain->rowgroup slice index (cc_domain_rowgroups). "
+            "Controls parquet scanning parallelism; DuckDB writes remain single-threaded. "
+            "Default: min(8, --workers)."
+        ),
+    )
     
     args = parser.parse_args()
     
@@ -3200,6 +3224,11 @@ def main() -> int:
         config.build_domain_rowgroup_index = bool(getattr(args, "build_domain_rowgroup_index"))
     config.domain_rowgroup_index_root = getattr(args, "domain_rowgroup_index_root", None)
     config.domain_rowgroup_index_batch_size = int(getattr(args, "domain_rowgroup_index_batch_size", 1) or 1)
+    if getattr(args, "domain_rowgroup_index_workers", None) is not None:
+        try:
+            config.domain_rowgroup_index_workers = int(getattr(args, "domain_rowgroup_index_workers"))
+        except Exception:
+            config.domain_rowgroup_index_workers = None
 
     # Normalize/assign defaults for core behavior.
     config.max_workers = int(getattr(config, "max_workers", 0) or 0)
@@ -3260,6 +3289,10 @@ def main() -> int:
             f"  domain_rowgroup_index_root: {getattr(config, 'domain_rowgroup_index_root', None) or Path('/storage/ccindex_duckdb/cc_domain_rowgroups_by_collection')}")
         logger.info(
             f"  domain_rowgroup_index_batch_size: {int(getattr(config, 'domain_rowgroup_index_batch_size', 1) or 1)}")
+        eff_rg_workers = getattr(config, 'domain_rowgroup_index_workers', None)
+        if eff_rg_workers is None:
+            eff_rg_workers = min(8, int(getattr(config, 'max_workers', 8) or 8))
+        logger.info(f"  domain_rowgroup_index_workers: {int(eff_rg_workers)}")
     logger.info("")
     
     orchestrator = PipelineOrchestrator(config)

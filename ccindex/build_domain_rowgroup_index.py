@@ -32,11 +32,16 @@ Example
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Optional, Sequence, Tuple, Dict, Any
+
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from uuid import uuid4
 
 import duckdb
 import pyarrow as pa
@@ -262,6 +267,21 @@ def main() -> int:
     ap.add_argument("--parquet-root", required=True, help="Root directory of parquet files")
     ap.add_argument("--output-db", required=True, help="Output DuckDB file")
     ap.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Parallel workers for reading/scanning parquet files (default: 1). DuckDB writes remain single-threaded.",
+    )
+    ap.add_argument(
+        "--temp-dir",
+        type=str,
+        default=None,
+        help=(
+            "Temporary directory for intermediate Arrow IPC files when --workers>1. "
+            "Default: create a temp directory next to the output DB."
+        ),
+    )
+    ap.add_argument(
         "--batch-size",
         type=int,
         default=1,
@@ -287,6 +307,7 @@ def main() -> int:
 
     parquet_root = Path(args.parquet_root).expanduser().resolve()
     output_db = Path(args.output_db).expanduser().resolve()
+    workers = max(1, int(args.workers or 1))
 
     if not parquet_root.exists():
         print(f"❌ parquet root not found: {parquet_root}", file=sys.stderr)
@@ -320,6 +341,7 @@ def main() -> int:
     print(f"Parquet root: {parquet_root}")
     print(f"Output DB:    {output_db}")
     print(f"Files:        {len(files)}")
+    print(f"Workers:      {workers}")
     print()
 
     output_db.parent.mkdir(parents=True, exist_ok=True)
@@ -404,19 +426,20 @@ def main() -> int:
         commit_every = max(1, int(args.batch_size or 1))
         did_files = 0
         skipped_files = 0
+        failed_files = 0
         total_segments = 0
 
-        t0 = time.time()
-
-        for idx, pq_file in enumerate(files, 1):
+        def _fingerprint(p: Path) -> tuple[int, int]:
             try:
-                st = pq_file.stat()
-                size_bytes = int(st.st_size)
-                mtime_ns = int(st.st_mtime_ns)
+                st = p.stat()
+                return int(st.st_size), int(st.st_mtime_ns)
             except Exception:
-                size_bytes = -1
-                mtime_ns = -1
+                return -1, -1
 
+        # Decide which files need work up-front (single-threaded DB reads).
+        to_process: List[tuple[int, Path, int, int]] = []
+        for idx, pq_file in enumerate(files, 1):
+            size_bytes, mtime_ns = _fingerprint(pq_file)
             pq_path_str = str(pq_file)
             existing = con.execute(
                 "SELECT size_bytes, mtime_ns FROM cc_indexed_parquet_files WHERE parquet_path = ?",
@@ -425,44 +448,195 @@ def main() -> int:
             if existing and int(existing[0]) == size_bytes and int(existing[1]) == mtime_ns:
                 skipped_files += 1
                 continue
+            to_process.append((idx, pq_file, size_bytes, mtime_ns))
 
-            print(f"[{idx}/{len(files)}] Indexing rowgroup segments for {pq_file.name}...")
+        print(f"Plan: {len(files)} files total; {skipped_files} unchanged; {len(to_process)} to process")
 
-            # Per-file idempotency.
-            con.execute("DELETE FROM cc_domain_rowgroups WHERE source_path = ?", [pq_path_str])
+        t0 = time.time()
+
+        # Worker emits an Arrow IPC file per parquet file (avoids pickling huge Python lists).
+        def _worker_scan_to_ipc(job: Dict[str, Any]) -> Dict[str, Any]:
+            pq_path = Path(job["parquet_path"]).resolve()
+            pq_root = Path(job["parquet_root"]).resolve()
+            tmp_dir = Path(job["temp_dir"]).resolve()
+            max_segments = job.get("max_segments_per_file")
 
             try:
                 segs = _segment_rowgroup_host_revs(
-                    parquet_path=pq_file,
-                    parquet_root=parquet_root,
-                    max_segments_per_file=(
-                        int(args.max_segments_per_file) if args.max_segments_per_file is not None else None
-                    ),
+                    parquet_path=pq_path,
+                    parquet_root=pq_root,
+                    max_segments_per_file=(int(max_segments) if max_segments is not None else None),
                 )
             except Exception as e:
-                print(f"  ❌ failed: {e}", file=sys.stderr)
-                continue
+                return {"ok": False, "parquet_path": str(pq_path), "error": str(e)}
 
-            if segs:
-                tbl = _segments_to_arrow(segs)
-                con.register("_cc_domain_rowgroups", tbl)
-                con.execute("INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups")
-                con.unregister("_cc_domain_rowgroups")
-                total_segments += int(len(segs))
+            # Write to IPC file
+            try:
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+                ipc_path = tmp_dir / f"rowgroups_{pq_path.name}_{os.getpid()}_{uuid4().hex}.arrow"
+                tbl = _segments_to_arrow(segs) if segs else pa.Table.from_batches([], schema=SEGMENT_SCHEMA)
+                with ipc_path.open("wb") as f:
+                    with pa.ipc.new_file(f, tbl.schema) as writer:
+                        writer.write_table(tbl)
+                return {
+                    "ok": True,
+                    "parquet_path": str(pq_path),
+                    "ipc_path": str(ipc_path),
+                    "segments": int(len(segs)),
+                }
+            except Exception as e:
+                return {"ok": False, "parquet_path": str(pq_path), "error": f"IPC write failed: {e}"}
 
-            con.execute("DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?", [pq_path_str])
-            con.execute(
-                "INSERT INTO cc_indexed_parquet_files (parquet_path, size_bytes, mtime_ns, indexed_at) VALUES (?, ?, ?, now())",
-                [pq_path_str, size_bytes, mtime_ns],
-            )
+        max_segments_per_file = int(args.max_segments_per_file) if args.max_segments_per_file is not None else None
 
-            did_files += 1
-            if (did_files % commit_every) == 0:
-                con.commit()
+        # Choose temp dir
+        if workers > 1:
+            if args.temp_dir:
+                base_tmp = Path(args.temp_dir).expanduser().resolve()
+            else:
+                base_tmp = (output_db.parent / ".tmp_domain_rowgroup_index").resolve()
+            base_tmp.mkdir(parents=True, exist_ok=True)
+            # unique run dir to avoid clashes
+            run_tmp = base_tmp / f"run_{time.strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
+            run_tmp.mkdir(parents=True, exist_ok=True)
+        else:
+            run_tmp = None
 
-            dt = time.time() - t0
-            rate = (did_files / dt) if dt > 0 else 0.0
-            print(f"  segments: {len(segs):,} (total={total_segments:,})  files_done={did_files}  rate={rate:.2f} files/s")
+        if workers == 1:
+            # Preserve original single-threaded behavior.
+            for idx, pq_file, size_bytes, mtime_ns in to_process:
+                pq_path_str = str(pq_file)
+                print(f"[{idx}/{len(files)}] Indexing rowgroup segments for {pq_file.name}...")
+
+                try:
+                    segs = _segment_rowgroup_host_revs(
+                        parquet_path=pq_file,
+                        parquet_root=parquet_root,
+                        max_segments_per_file=max_segments_per_file,
+                    )
+                except Exception as e:
+                    failed_files += 1
+                    print(f"  ❌ failed: {e}", file=sys.stderr)
+                    continue
+
+                # Per-file idempotency (only after success so we don't lose data on failure).
+                con.execute("DELETE FROM cc_domain_rowgroups WHERE source_path = ?", [pq_path_str])
+
+                if segs:
+                    tbl = _segments_to_arrow(segs)
+                    con.register("_cc_domain_rowgroups", tbl)
+                    con.execute("INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups")
+                    con.unregister("_cc_domain_rowgroups")
+                    total_segments += int(len(segs))
+
+                con.execute("DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?", [pq_path_str])
+                con.execute(
+                    "INSERT INTO cc_indexed_parquet_files (parquet_path, size_bytes, mtime_ns, indexed_at) VALUES (?, ?, ?, now())",
+                    [pq_path_str, size_bytes, mtime_ns],
+                )
+
+                did_files += 1
+                if (did_files % commit_every) == 0:
+                    con.commit()
+
+                dt = time.time() - t0
+                rate = (did_files / dt) if dt > 0 else 0.0
+                print(
+                    f"  segments: {len(segs):,} (total={total_segments:,})  files_done={did_files}  rate={rate:.2f} files/s"
+                )
+        else:
+            assert run_tmp is not None
+
+            jobs: List[Dict[str, Any]] = []
+            for idx, pq_file, size_bytes, mtime_ns in to_process:
+                jobs.append(
+                    {
+                        "idx": int(idx),
+                        "parquet_path": str(pq_file),
+                        "parquet_root": str(parquet_root),
+                        "temp_dir": str(run_tmp),
+                        "max_segments_per_file": max_segments_per_file,
+                        "size_bytes": int(size_bytes),
+                        "mtime_ns": int(mtime_ns),
+                    }
+                )
+
+            print(f"Spawning {workers} worker(s); IPC temp dir: {run_tmp}")
+
+            # Submit all scans; write results into DuckDB as they complete.
+            # Note: DuckDB writes remain in this (main) process.
+            with ProcessPoolExecutor(max_workers=workers) as ex:
+                fut_to_job = {ex.submit(_worker_scan_to_ipc, j): j for j in jobs}
+                for fut in as_completed(fut_to_job):
+                    j = fut_to_job[fut]
+                    idx = int(j["idx"])
+                    pq_path_str = str(j["parquet_path"])
+                    pq_name = Path(pq_path_str).name
+
+                    try:
+                        res = fut.result()
+                    except Exception as e:
+                        failed_files += 1
+                        print(f"[{idx}/{len(files)}] ❌ {pq_name}: worker crashed: {e}", file=sys.stderr)
+                        continue
+
+                    if not res.get("ok"):
+                        failed_files += 1
+                        print(
+                            f"[{idx}/{len(files)}] ❌ {pq_name}: {res.get('error')}",
+                            file=sys.stderr,
+                        )
+                        continue
+
+                    ipc_path = Path(str(res.get("ipc_path"))).resolve()
+                    seg_count = int(res.get("segments") or 0)
+
+                    # Per-file idempotency (only after scan success).
+                    con.execute("DELETE FROM cc_domain_rowgroups WHERE source_path = ?", [pq_path_str])
+
+                    try:
+                        with ipc_path.open("rb") as f:
+                            reader = pa.ipc.open_file(f)
+                            tbl = reader.read_all()
+                        if tbl.num_rows:
+                            con.register("_cc_domain_rowgroups", tbl)
+                            con.execute("INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups")
+                            con.unregister("_cc_domain_rowgroups")
+                            total_segments += int(seg_count)
+
+                        con.execute("DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?", [pq_path_str])
+                        con.execute(
+                            "INSERT INTO cc_indexed_parquet_files (parquet_path, size_bytes, mtime_ns, indexed_at) VALUES (?, ?, ?, now())",
+                            [pq_path_str, int(j["size_bytes"]), int(j["mtime_ns"])],
+                        )
+
+                        did_files += 1
+                        if (did_files % commit_every) == 0:
+                            con.commit()
+
+                        dt = time.time() - t0
+                        rate = (did_files / dt) if dt > 0 else 0.0
+                        print(
+                            f"[{idx}/{len(files)}] ✅ {pq_name}: segments={seg_count:,} total_segments={total_segments:,} "
+                            f"files_done={did_files} rate={rate:.2f} files/s"
+                        )
+                    finally:
+                        try:
+                            ipc_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+
+            # Best-effort cleanup of empty temp dir.
+            try:
+                if run_tmp.exists():
+                    for p in run_tmp.glob("*"):
+                        try:
+                            p.unlink()
+                        except Exception:
+                            pass
+                    run_tmp.rmdir()
+            except Exception:
+                pass
 
         con.commit()
 
@@ -479,7 +653,7 @@ def main() -> int:
                 pass
 
         print("\nDone")
-        print(f"  processed: {did_files:,} files (skipped unchanged: {skipped_files:,})")
+        print(f"  processed: {did_files:,} files (skipped unchanged: {skipped_files:,}, failed: {failed_files:,})")
         print(f"  segments:  {total_segments:,}")
         try:
             print(f"  db size:   {output_db.stat().st_size / (1024**3):.3f} GB")

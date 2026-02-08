@@ -48,13 +48,14 @@ def build_master_index(year_indexes: List[Tuple[str, Path]], output_path: Path) 
     conn = duckdb.connect(str(output_path))
     
     # Create master registry table
+    # Note: use BIGINT for counts since totals can exceed INT32.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS year_registry (
             year TEXT PRIMARY KEY,
             db_path TEXT NOT NULL,
             collection_count INTEGER,
-            total_domains INTEGER,
-            total_files INTEGER,
+            total_domains BIGINT,
+            total_files BIGINT,
             indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -66,11 +67,24 @@ def build_master_index(year_indexes: List[Tuple[str, Path]], output_path: Path) 
             year TEXT NOT NULL,
             year_db_path TEXT NOT NULL,
             collection_db_path TEXT NOT NULL,
-            domain_count INTEGER,
-            file_count INTEGER,
+            domain_count BIGINT,
+            file_count BIGINT,
             indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # Best-effort schema migration for existing databases created with INT32.
+    # DuckDB supports widening INTEGER -> BIGINT.
+    for stmt in [
+        "ALTER TABLE year_registry ALTER COLUMN total_domains SET DATA TYPE BIGINT",
+        "ALTER TABLE year_registry ALTER COLUMN total_files SET DATA TYPE BIGINT",
+        "ALTER TABLE collection_summary ALTER COLUMN domain_count SET DATA TYPE BIGINT",
+        "ALTER TABLE collection_summary ALTER COLUMN file_count SET DATA TYPE BIGINT",
+    ]:
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
     
     total_collections = 0
     total_domains = 0
@@ -129,12 +143,21 @@ def build_master_index(year_indexes: List[Tuple[str, Path]], output_path: Path) 
             id INTEGER PRIMARY KEY,
             year_count INTEGER,
             collection_count INTEGER,
-            total_domains INTEGER,
-            total_files INTEGER,
+            total_domains BIGINT,
+            total_files BIGINT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    for stmt in [
+        "ALTER TABLE master_info ALTER COLUMN total_domains SET DATA TYPE BIGINT",
+        "ALTER TABLE master_info ALTER COLUMN total_files SET DATA TYPE BIGINT",
+    ]:
+        try:
+            conn.execute(stmt)
+        except Exception:
+            pass
     
     conn.execute("""
         INSERT OR REPLACE INTO master_info (id, year_count, collection_count, total_domains, total_files)

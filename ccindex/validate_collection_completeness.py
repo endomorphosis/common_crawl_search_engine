@@ -418,6 +418,15 @@ class CollectionValidator:
             'parquet_expected': 300,
             'sorted_count': 0,
             'sorted_expected': 0,
+            # Empty shard sanity checks.
+            # - An empty shard is only considered "valid" if an adjacent
+            #   *.parquet.empty marker exists.
+            # - These counters are informational but also help flag cases
+            #   where a 0-row parquet appears without a marker.
+            'empty_marker_count': 0,
+            'empty_sorted_confirmed': 0,
+            'unexpected_empty_sorted': 0,
+            'empty_marker_mismatch': 0,
             'duckdb_index_exists': False,
             'duckdb_index_sorted': False,
             'complete': False,
@@ -445,6 +454,40 @@ class CollectionValidator:
             sorted_count, total_count = self.check_collection_parquet_sorted(collection)
             status['sorted_count'] = sorted_count
             status['sorted_expected'] = total_count
+
+        # Empty parquet sanity checks (only when we have a concrete collection dir).
+        # These checks are fast (metadata-only) and help explain segments=0 cases.
+        try:
+            if parquet_path is not None and parquet_path.exists() and parquet_path.is_dir():
+                markers = list(parquet_path.glob("*.parquet.empty"))
+                status['empty_marker_count'] = len(markers)
+
+                # Check any sorted parquet that is empty; distinguish between
+                # expected (marker exists) and unexpected (no marker).
+                sorted_files = list(parquet_path.glob("cdx-*.gz.sorted.parquet"))
+                for sp in sorted_files:
+                    # Marker is always associated with the *unsorted* name.
+                    unsorted_candidate = sp.with_name(sp.name.replace(".gz.sorted.parquet", ".gz.parquet"))
+                    marker = self._empty_marker_path(unsorted_candidate)
+
+                    nrows = self._parquet_num_rows(sp)
+                    if nrows is None:
+                        continue
+                    if int(nrows) != 0:
+                        # If a marker exists but the sorted parquet is non-empty,
+                        # the marker is stale or incorrect.
+                        if marker.exists():
+                            status['empty_marker_mismatch'] += 1
+                        continue
+
+                    # nrows == 0
+                    if marker.exists():
+                        status['empty_sorted_confirmed'] += 1
+                    else:
+                        status['unexpected_empty_sorted'] += 1
+        except Exception:
+            # Don't fail validation due to best-effort sanity checks.
+            pass
         
         # Stage 4: Check DuckDB index exists
         has_index, db_paths = self.check_duckdb_index_exists(collection)
@@ -462,7 +505,9 @@ class CollectionValidator:
             status['sorted_count'] >= status['sorted_expected'] and
             status['sorted_expected'] > 0 and
             status['duckdb_index_exists'] and 
-            status['duckdb_index_sorted'] is True  # Must be explicitly True, not None
+            status['duckdb_index_sorted'] is True and  # Must be explicitly True, not None
+            int(status.get('unexpected_empty_sorted') or 0) == 0 and
+            int(status.get('empty_marker_mismatch') or 0) == 0
         )
         
         return status
@@ -509,6 +554,17 @@ class CollectionValidator:
             print(f"  ✅ sorted:      {status['sorted_count']:>3}/{status['sorted_expected']:<3} ({sort_pct:>5.1f}%)")
         else:
             print(f"  ✅ sorted:      N/A")
+
+        # Empty shard sanity (only print when relevant)
+        empty_markers = int(status.get('empty_marker_count') or 0)
+        empty_confirmed = int(status.get('empty_sorted_confirmed') or 0)
+        empty_unexpected = int(status.get('unexpected_empty_sorted') or 0)
+        empty_mismatch = int(status.get('empty_marker_mismatch') or 0)
+        if empty_markers or empty_confirmed or empty_unexpected or empty_mismatch:
+            print(
+                f"  🧪 empty shards: markers={empty_markers}, empty_sorted={empty_confirmed}, "
+                f"unexpected_empty_sorted={empty_unexpected}, marker_mismatch={empty_mismatch}"
+            )
         
         # DuckDB index status
         idx_status = "✓" if status['duckdb_index_exists'] else "✗"

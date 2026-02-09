@@ -1133,8 +1133,19 @@ class PipelineOrchestrator:
                 so = f"{int(status.get('sorted_count', 0) or 0)}/{int(status.get('sorted_expected', 0) or 0)}"
                 db = "yes" if bool(status.get("duckdb_index_exists")) else "no"
                 complete = bool(status.get("complete"))
+
+                empty_markers = int(status.get("empty_marker_count", 0) or 0)
+                empty_sorted = int(status.get("empty_sorted_confirmed", 0) or 0)
+                unexpected_empty = int(status.get("unexpected_empty_sorted", 0) or 0)
+                marker_mismatch = int(status.get("empty_marker_mismatch", 0) or 0)
+                empty_note = ""
+                if empty_markers or empty_sorted or unexpected_empty or marker_mismatch:
+                    empty_note = (
+                        f", empty markers={empty_markers}, empty_sorted={empty_sorted}, "
+                        f"unexpected_empty_sorted={unexpected_empty}, marker_mismatch={marker_mismatch}"
+                    )
                 logger.info(
-                    f"[scan] Done {collection} in {dt:.1f}s (gz {gz}, pq {pq}, sorted {so}, duckdb {db}, complete={complete})"
+                    f"[scan] Done {collection} in {dt:.1f}s (gz {gz}, pq {pq}, sorted {so}, duckdb {db}, complete={complete}{empty_note})"
                 )
             except Exception:
                 logger.info(f"[scan] Done {collection} in {dt:.1f}s")

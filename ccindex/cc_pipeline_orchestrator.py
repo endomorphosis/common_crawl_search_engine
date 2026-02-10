@@ -406,38 +406,39 @@ class PipelineOrchestrator:
 
         plan: List[Tuple[Path, str]] = []
 
-        parquet_dir = self._get_collection_parquet_dir(collection)
-        if parquet_dir.exists():
-            # 1) Remove leftover temp files in the parquet output tree.
-            for p in parquet_dir.rglob("*.tmp"):
-                plan.append((p, "leftover tmp"))
-            for p in parquet_dir.rglob("*.tmp.parquet"):
-                plan.append((p, "leftover tmp parquet"))
+        if getattr(self.config, "cleanup_extraneous", False):
+            parquet_dir = self._get_collection_parquet_dir(collection)
+            if parquet_dir.exists():
+                # 1) Remove leftover temp files in the parquet output tree.
+                for p in parquet_dir.rglob("*.tmp"):
+                    plan.append((p, "leftover tmp"))
+                for p in parquet_dir.rglob("*.tmp.parquet"):
+                    plan.append((p, "leftover tmp parquet"))
 
-            # 2) Remove zero-byte parquet files (failed/partial writes).
-            for p in parquet_dir.glob("*.parquet"):
-                try:
-                    if p.is_file() and p.stat().st_size == 0:
-                        plan.append((p, "zero-byte parquet"))
-                except OSError:
-                    pass
-
-            # 3) Remove duplicate unsorted shards when a sorted twin exists.
-            for sorted_file in parquet_dir.glob("cdx-*.gz.sorted.parquet"):
-                unsorted_candidate = sorted_file.with_name(
-                    sorted_file.name.replace(".gz.sorted.parquet", ".gz.parquet")
-                )
-                if unsorted_candidate.exists():
-                    plan.append((unsorted_candidate, "duplicate unsorted (sorted exists)"))
-
-            # 4) Remove empty per-sort work dirs if they landed in the collection folder.
-            for d in parquet_dir.glob("cc_sort_*"):
-                if d.is_dir():
+                # 2) Remove zero-byte parquet files (failed/partial writes).
+                for p in parquet_dir.glob("*.parquet"):
                     try:
-                        if not any(d.iterdir()):
-                            plan.append((d, "empty sort work dir"))
+                        if p.is_file() and p.stat().st_size == 0:
+                            plan.append((p, "zero-byte parquet"))
                     except OSError:
                         pass
+
+                # 3) Remove duplicate unsorted shards when a sorted twin exists.
+                for sorted_file in parquet_dir.glob("cdx-*.gz.sorted.parquet"):
+                    unsorted_candidate = sorted_file.with_name(
+                        sorted_file.name.replace(".gz.sorted.parquet", ".gz.parquet")
+                    )
+                    if unsorted_candidate.exists():
+                        plan.append((unsorted_candidate, "duplicate unsorted (sorted exists)"))
+
+                # 4) Remove empty per-sort work dirs if they landed in the collection folder.
+                for d in parquet_dir.glob("cc_sort_*"):
+                    if d.is_dir():
+                        try:
+                            if not any(d.iterdir()):
+                                plan.append((d, "empty sort work dir"))
+                        except OSError:
+                            pass
 
         # 5) Optionally remove source archives once the collection is fully complete.
         if getattr(self.config, "cleanup_source_archives", False):
@@ -559,8 +560,8 @@ class PipelineOrchestrator:
         If not in dry-run mode, prompts for confirmation unless assume_yes=True.
         """
 
-        if not getattr(self.config, "cleanup_extraneous", False):
-            logger.info("[cleanup] cleanup-only requested; enabling safe extraneous cleanup")
+        if (not getattr(self.config, "cleanup_extraneous", False)) and (not getattr(self.config, "cleanup_source_archives", False)):
+            logger.info("[cleanup] cleanup-only requested with all cleanup disabled; enabling safe extraneous cleanup")
             self.config.cleanup_extraneous = True
 
         self.collections = self.get_all_collections()
@@ -1237,9 +1238,13 @@ class PipelineOrchestrator:
             last_done = idx
     
     def get_available_memory_gb(self) -> float:
-        """Get available system memory in GB"""
-        mem = psutil.virtual_memory()
-        return mem.available / (1024 ** 3)
+        """Get available system memory in GB.
+
+        Uses an "effective available" estimate that can include reclaimable ZFS ARC
+        (see CC_ARC_FRACTION and arcstats logic above).
+        """
+
+        return float(_effective_available_memory_bytes()) / (1024.0**3)
     
     def get_free_space_gb(self, path: Path) -> float:
         """Get free disk space in GB"""

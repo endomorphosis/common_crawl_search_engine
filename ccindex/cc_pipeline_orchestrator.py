@@ -61,6 +61,89 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _zfs_arc_reclaimable_bytes() -> int:
+    """Best-effort estimate of reclaimable ZFS ARC bytes.
+
+    ARC generally shrinks under memory pressure, but it is not always accounted
+    for in Linux MemAvailable. We treat (size - c_min) as reclaimable.
+    Returns 0 if arcstats is unavailable or unparsable.
+    """
+
+    arcstats = "/proc/spl/kstat/zfs/arcstats"
+    try:
+        size = None
+        c_min = None
+        with open(arcstats, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                name = parts[0]
+                if name == "size":
+                    size = int(float(parts[2]))
+                elif name == "c_min":
+                    c_min = int(float(parts[2]))
+                if size is not None and c_min is not None:
+                    break
+        if size is None or c_min is None:
+            return 0
+        return max(0, int(size - c_min))
+    except Exception:
+        return 0
+
+
+def _default_arc_fraction() -> float:
+    """Default ARC fraction to count when running on ZFS.
+
+    If CC_ARC_FRACTION is unset/empty and arcstats exists, default to 0.5.
+    This keeps behavior opt-out (set CC_ARC_FRACTION=0) while making ZFS hosts
+    behave sensibly by default.
+    """
+
+    try:
+        if os.path.exists("/proc/spl/kstat/zfs/arcstats"):
+            return 0.5
+    except Exception:
+        pass
+    return 0.0
+
+
+def _effective_available_memory_bytes() -> int:
+    """Return an 'effective available' memory estimate.
+
+    Base is psutil virtual_memory().available (Linux MemAvailable).
+    If CC_ARC_FRACTION > 0 and ZFS arcstats exists, add
+    CC_ARC_FRACTION * (ARC_reclaimable).
+    """
+
+    base = int(psutil.virtual_memory().available)
+    raw = os.environ.get("CC_ARC_FRACTION")
+    try:
+        arc_frac = float((raw or "").strip()) if raw is not None and str(raw).strip() != "" else _default_arc_fraction()
+    except Exception:
+        arc_frac = _default_arc_fraction()
+    if arc_frac <= 0:
+        return base
+    arc_frac = max(0.0, min(1.0, arc_frac))
+    arc_reclaim = _zfs_arc_reclaimable_bytes()
+    return int(base + (arc_reclaim * arc_frac))
+
+
+def _effective_available_memory_components_bytes() -> Tuple[int, int, float, int]:
+    """Return (base_avail, arc_reclaimable, arc_fraction, effective_avail) in bytes."""
+
+    base = int(psutil.virtual_memory().available)
+    raw = os.environ.get("CC_ARC_FRACTION")
+    try:
+        arc_frac = float((raw or "").strip()) if raw is not None and str(raw).strip() != "" else _default_arc_fraction()
+    except Exception:
+        arc_frac = _default_arc_fraction()
+    arc_frac = max(0.0, min(1.0, arc_frac))
+    arc_reclaim = _zfs_arc_reclaimable_bytes() if arc_frac > 0 else 0
+    eff = int(base + (arc_reclaim * arc_frac))
+    return base, arc_reclaim, arc_frac, eff
+
+
 # Default behavior: run the full pipeline for 2023 collections.
 # This can be overridden via --filter, pipeline_config.json (collections_filter),
 # or by setting $CC_DEFAULT_COLLECTION_FILTER.
@@ -1659,7 +1742,11 @@ class PipelineOrchestrator:
             # Use a conservative fraction of *available system memory* for parallel sorts.
             # Only auto-cap when sort_workers was not explicitly set by the user.
             try:
-                avail_gb = float(psutil.virtual_memory().available) / (1024.0**3)
+                # Note: psutil.available maps to Linux MemAvailable, which may undercount
+                # ZFS ARC reclaimable memory. If CC_ARC_FRACTION is set (>0), include a
+                # fraction of ARC reclaimable bytes in the available estimate.
+                base_b, arc_reclaim_b, arc_frac, eff_b = _effective_available_memory_components_bytes()
+                avail_gb = float(eff_b) / (1024.0**3)
                 # Keep some headroom for Python/Arrow/OS page cache.
                 mem_budget = max(1.0, avail_gb * 0.8)
                 max_parallel_by_mem = max(1, int(mem_budget // max(0.1, sort_mem_gb)))
@@ -1667,13 +1754,15 @@ class PipelineOrchestrator:
                     if self.config.sort_workers is None:
                         logger.warning(
                             f"Reducing sort-workers for {collection} from {sort_workers} to {max_parallel_by_mem} "
-                            f"to fit available RAM (avail≈{avail_gb:.1f}GB, mem_budget≈{mem_budget:.1f}GB, mem_per_sort={sort_mem_gb}GB)"
+                            f"to fit available RAM (avail≈{avail_gb:.1f}GB, mem_budget≈{mem_budget:.1f}GB, mem_per_sort={sort_mem_gb}GB; "
+                            f"base_avail≈{base_b/(1024.0**3):.1f}GB, arc_reclaim≈{arc_reclaim_b/(1024.0**3):.1f}GB, arc_frac={arc_frac:.2f})"
                         )
                         sort_workers = max_parallel_by_mem
                     else:
                         logger.warning(
                             f"sort-workers={sort_workers} may exceed safe parallelism for available RAM "
-                            f"(avail≈{avail_gb:.1f}GB, mem_budget≈{mem_budget:.1f}GB, mem_per_sort={sort_mem_gb}GB). "
+                            f"(avail≈{avail_gb:.1f}GB, mem_budget≈{mem_budget:.1f}GB, mem_per_sort={sort_mem_gb}GB; "
+                            f"base_avail≈{base_b/(1024.0**3):.1f}GB, arc_reclaim≈{arc_reclaim_b/(1024.0**3):.1f}GB, arc_frac={arc_frac:.2f}). "
                             "Proceeding because --sort-workers was explicitly set."
                         )
             except Exception:

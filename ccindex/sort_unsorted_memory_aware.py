@@ -6,6 +6,7 @@ Checks available memory before starting each sort job.
 
 import argparse
 import multiprocessing as mp
+import os
 import time
 from pathlib import Path
 from typing import Tuple
@@ -30,9 +31,48 @@ def _require_provenance_columns(parquet_file: Path) -> None:
 
 
 def get_available_memory_gb() -> float:
-    """Get available memory in GB."""
-    mem = psutil.virtual_memory()
-    return mem.available / (1024 ** 3)
+    """Get available memory in GB.
+
+    Base is psutil virtual_memory().available (Linux MemAvailable).
+    If CC_ARC_FRACTION > 0 and ZFS arcstats exists, add
+    CC_ARC_FRACTION * (ARC_reclaimable) to better reflect reclaimable ARC.
+    """
+
+    base = float(psutil.virtual_memory().available)
+    raw = os.environ.get("CC_ARC_FRACTION")
+    try:
+        if raw is None or str(raw).strip() == "":
+            arc_frac = 0.5 if os.path.exists("/proc/spl/kstat/zfs/arcstats") else 0.0
+        else:
+            arc_frac = float(str(raw).strip())
+    except Exception:
+        arc_frac = 0.5 if os.path.exists("/proc/spl/kstat/zfs/arcstats") else 0.0
+    arc_frac = max(0.0, min(1.0, arc_frac))
+    if arc_frac <= 0:
+        return base / (1024**3)
+
+    arcstats = "/proc/spl/kstat/zfs/arcstats"
+    try:
+        size = None
+        c_min = None
+        with open(arcstats, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                if parts[0] == "size":
+                    size = float(parts[2])
+                elif parts[0] == "c_min":
+                    c_min = float(parts[2])
+                if size is not None and c_min is not None:
+                    break
+        if size is None or c_min is None:
+            return base / (1024**3)
+        arc_reclaim = max(0.0, size - c_min)
+        eff = base + (arc_reclaim * arc_frac)
+        return eff / (1024**3)
+    except Exception:
+        return base / (1024**3)
 
 
 def sort_parquet_file(args: Tuple[Path, Path, int, float, int]) -> Tuple[Path, bool, str]:

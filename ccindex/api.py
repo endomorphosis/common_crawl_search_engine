@@ -4303,3 +4303,186 @@ def fetch_warc_record_range(
         decoded_text_preview=preview,
         error=None,
     )
+
+
+def _merge_ranges_into_slices(
+    ranges: List[Tuple[int, int]],
+    *,
+    max_slice_bytes: int,
+    max_gap_bytes: int,
+) -> List[Tuple[int, int, List[Tuple[int, int]]]]:
+    """Merge (offset,length) ranges into fetchable slices.
+
+    Returns a list of tuples: (slice_start, slice_end_inclusive, member_ranges).
+    """
+
+    if not ranges:
+        return []
+
+    norm: List[Tuple[int, int, int]] = []
+    for off, ln in ranges:
+        o = int(off)
+        l = int(ln)
+        if o < 0 or l <= 0:
+            continue
+        norm.append((o, o + l - 1, l))
+    if not norm:
+        return []
+
+    norm.sort(key=lambda t: t[0])
+
+    slices: List[Tuple[int, int, List[Tuple[int, int]]]] = []
+    cur_start = norm[0][0]
+    cur_end = norm[0][1]
+    members: List[Tuple[int, int]] = [(norm[0][0], norm[0][2])]
+
+    for start, end, ln in norm[1:]:
+        gap = int(start) - int(cur_end) - 1
+        new_start = cur_start
+        new_end = max(cur_end, end)
+        new_len = int(new_end) - int(new_start) + 1
+
+        if gap <= int(max_gap_bytes) and (int(max_slice_bytes) <= 0 or new_len <= int(max_slice_bytes)):
+            cur_end = new_end
+            members.append((start, ln))
+            continue
+
+        slices.append((int(cur_start), int(cur_end), members))
+        cur_start = start
+        cur_end = end
+        members = [(start, ln)]
+
+    slices.append((int(cur_start), int(cur_end), members))
+    return slices
+
+
+def fetch_warc_record_ranges_sliced(
+    *,
+    warc_filename: str,
+    ranges: List[Tuple[int, int]],
+    prefix: str = "https://data.commoncrawl.org/",
+    timeout_s: float = 30.0,
+    max_slice_bytes: int = 25_000_000,
+    max_gap_bytes: int = 256_000,
+    max_workers: int = 1,
+    cache_dir: Optional[Path] = None,
+    cache_max_bytes: int = 2_000_000_000,
+    cache_max_item_bytes: int = 25_000_000,
+) -> Tuple[Dict[Tuple[int, int], bytes], Dict[Tuple[int, int], str]]:
+    """Fetch multiple WARC record ranges using a small number of Range GETs.
+
+    This is an optimization over calling fetch_warc_record_range repeatedly: it
+    groups close-by (offset,length) ranges into contiguous byte "slices", fetches
+    each slice once, then splits out each individual gzip-member payload.
+
+    Returns:
+      (data_by_range, error_by_range)
+    where keys are (warc_offset, warc_length).
+    """
+
+    url = warc_download_url(str(warc_filename), prefix=prefix)
+
+    # Normalize input while keeping a stable key.
+    wanted: List[Tuple[int, int]] = []
+    for off, ln in ranges or []:
+        o = int(off)
+        l = int(ln)
+        if o < 0 or l <= 0:
+            continue
+        wanted.append((o, l))
+
+    data_by: Dict[Tuple[int, int], bytes] = {}
+    err_by: Dict[Tuple[int, int], str] = {}
+    if not wanted:
+        return data_by, err_by
+
+    # De-dupe exact duplicates to avoid redundant work.
+    wanted = sorted(set(wanted), key=lambda t: t[0])
+
+    slices = _merge_ranges_into_slices(
+        wanted,
+        max_slice_bytes=int(max_slice_bytes),
+        max_gap_bytes=int(max_gap_bytes),
+    )
+
+    if cache_dir is None:
+        cache_dir = _default_warc_cache_dir()
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _fetch_one_slice(slice_start: int, slice_end: int) -> Tuple[int, int, Optional[int], Optional[bytes], Optional[str]]:
+        bytes_requested = int(slice_end) - int(slice_start) + 1
+        slice_cache_dir = cache_dir
+        slice_cache_max_item_bytes = int(cache_max_item_bytes)
+        if int(cache_max_item_bytes) > 0 and bytes_requested > int(cache_max_item_bytes):
+            slice_cache_dir = None
+            slice_cache_max_item_bytes = 0
+        status, blob, err = _http_range_get_cached(
+            url=url,
+            start=int(slice_start),
+            end_inclusive=int(slice_end),
+            timeout_s=float(timeout_s),
+            cache_dir=slice_cache_dir,
+            cache_max_bytes=int(cache_max_bytes),
+            cache_max_item_bytes=int(slice_cache_max_item_bytes) if slice_cache_dir is not None else 0,
+        )
+        return int(slice_start), int(slice_end), status, blob, err
+
+    workers = int(max_workers) if max_workers is not None else 1
+    if workers <= 1 or len(slices) <= 1:
+        slice_results = []
+        for slice_start, slice_end, _members in slices:
+            slice_results.append((slice_start, slice_end, _members, *_fetch_one_slice(slice_start, slice_end)[2:]))
+    else:
+        slice_results = []
+        # Submit only slice start/end; map back to members via a dict.
+        members_by = {(int(s0), int(s1)): mem for (s0, s1, mem) in slices}
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = [ex.submit(_fetch_one_slice, int(s0), int(s1)) for (s0, s1, _mem) in slices]
+            for fut in as_completed(futs):
+                s0, s1, status, blob, err = fut.result()
+                mem = members_by.get((int(s0), int(s1)), [])
+                slice_results.append((int(s0), int(s1), mem, status, blob, err))
+        slice_results.sort(key=lambda t: (t[0], t[1]))
+
+    for slice_start, slice_end, members, status, blob, err in slice_results:
+        if blob is None or err is not None:
+            msg = err or f"slice fetch failed status={status}"
+            for off, ln in members:
+                err_by[(int(off), int(ln))] = msg
+            continue
+
+        for off, ln in members:
+            rel = int(off) - int(slice_start)
+            lni = int(ln)
+            if rel < 0 or rel + lni > len(blob):
+                err_by[(int(off), int(ln))] = "slice split out of bounds"
+                continue
+            data_by[(int(off), int(ln))] = blob[rel : rel + lni]
+
+    # Final backstop: if a member failed because of slicing bounds, attempt a direct range fetch.
+    # This also helps if the server returns short reads for certain slices.
+    for off, ln in wanted:
+        key = (int(off), int(ln))
+        if key in data_by:
+            continue
+        if key not in err_by:
+            err_by[key] = "missing"
+        # One retry per missing range.
+        end_inclusive = int(off) + int(ln) - 1
+        status, blob, err = _http_range_get_cached(
+            url=url,
+            start=int(off),
+            end_inclusive=int(end_inclusive),
+            timeout_s=float(timeout_s),
+            cache_dir=cache_dir,
+            cache_max_bytes=int(cache_max_bytes),
+            cache_max_item_bytes=int(cache_max_item_bytes),
+        )
+        if blob is not None and err is None and len(blob) == int(ln):
+            data_by[key] = blob
+            err_by.pop(key, None)
+        else:
+            err_by[key] = err or f"direct range fetch failed status={status}"
+
+    return data_by, err_by

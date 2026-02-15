@@ -44,12 +44,16 @@ def _delegate(module_path: str, argv: list[str]) -> int:
     if not hasattr(mod, "main"):
         raise RuntimeError(f"Module {module_path} has no main()")
 
+    passthrough = list(argv or [])
+    if passthrough[:1] == ["--"]:
+        passthrough = passthrough[1:]
+
     old_argv = sys.argv
-    sys.argv = [module_path] + list(argv)
+    sys.argv = [module_path] + passthrough
     try:
         # Some legacy modules accept main(argv), others define main() and read sys.argv.
         try:
-            return int(mod.main(argv))
+            return int(mod.main(passthrough))
         except TypeError:
             return int(mod.main())
     finally:
@@ -1054,6 +1058,32 @@ def main(argv: list[str] | None = None) -> int:
     ap_warc_fetch.add_argument("--no-http", dest="http", action="store_false")
     ap_warc_fetch.add_argument("--include-http-body-base64", action="store_true", default=False)
     ap_warc_fetch.set_defaults(func=_cmd_warc_fetch_record)
+
+    # ---- plan ----
+    ap_plan = sub.add_parser("plan", help="Plan large-scale Common Crawl range retrieval")
+    sub_plan = ap_plan.add_subparsers(dest="plan_cmd", required=True)
+
+    ap_pointers = sub_plan.add_parser(
+        "pointers-from-csv",
+        help="Search CC index for all domains in a CSV, emit pointer JSONL (defaults uncapped; use --max-matches/--max-parquet-files/--per-parquet-limit to cap)",
+    )
+    ap_pointers.add_argument("argv", nargs=argparse.REMAINDER)
+    ap_pointers.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_pointers_from_csv", a.argv))
+
+    ap_slices = sub_plan.add_parser("slices-from-pointers", help="Compile a canonical slice plan from pointer JSONL")
+    ap_slices.add_argument("argv", nargs=argparse.REMAINDER)
+    ap_slices.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_slices_from_pointers", a.argv))
+
+    ap_fetch = sub_plan.add_parser("fetch-slices", help="Fetch all slices in a slice plan in parallel (warms range cache)")
+    ap_fetch.add_argument("argv", nargs=argparse.REMAINDER)
+    ap_fetch.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.fetch_slice_plan", a.argv))
+
+    ap_extract = sub_plan.add_parser(
+        "extract-from-cache",
+        help="Reconstruct WARC members from cached slices and parse HTTP payloads into JSONL",
+    )
+    ap_extract.add_argument("argv", nargs=argparse.REMAINDER)
+    ap_extract.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.extract_from_cache", a.argv))
 
     ns = ap.parse_args(argv)
     return int(ns.func(ns))

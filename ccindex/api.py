@@ -1073,46 +1073,86 @@ def iter_warc_candidates_from_parquet(
             where_sql = "TRUE"
             params = []
 
+        # Treat non-positive as "no cap".
+        use_limit = int(limit) > 0
+
         sql = f"""
             SELECT
                 {select_list}
             FROM read_parquet(?)
             WHERE {where_sql}
-            LIMIT ?
         """
+        if use_limit:
+            sql += "\n            LIMIT ?\n        "
 
-        rows = con.execute(sql, [str(parquet_path), *params, int(limit)]).fetchall()
+        exec_params: list[object] = [str(parquet_path), *params]
+        if use_limit:
+            exec_params.append(int(limit))
 
-        for (
-            collection,
-            shard_file,
-            url,
-            ts,
-            status,
-            mime,
-            digest,
-            warc_filename,
-            warc_offset,
-            warc_length,
-        ) in rows:
-            yield {
-                "collection": _infer_collection(collection, warc_filename),
-                "shard_file": shard_file,
-                "url": url,
-                "timestamp": ts,
-                "status": int(status) if status is not None else None,
-                "mime": mime,
-                "digest": digest,
-                "warc_filename": warc_filename,
-                "warc_offset": int(warc_offset) if warc_offset is not None else None,
-                "warc_length": int(warc_length) if warc_length is not None else None,
-                "parquet_path": str(parquet_path),
-            }
+        cur = con.execute(sql, exec_params)
+        fetchmany = getattr(cur, "fetchmany", None)
+        if callable(fetchmany):
+            while True:
+                rows = fetchmany(10_000)
+                if not rows:
+                    break
+                for (
+                    collection,
+                    shard_file,
+                    url,
+                    ts,
+                    status,
+                    mime,
+                    digest,
+                    warc_filename,
+                    warc_offset,
+                    warc_length,
+                ) in rows:
+                    yield {
+                        "collection": _infer_collection(collection, warc_filename),
+                        "shard_file": shard_file,
+                        "url": url,
+                        "timestamp": ts,
+                        "status": int(status) if status is not None else None,
+                        "mime": mime,
+                        "digest": digest,
+                        "warc_filename": warc_filename,
+                        "warc_offset": int(warc_offset) if warc_offset is not None else None,
+                        "warc_length": int(warc_length) if warc_length is not None else None,
+                        "parquet_path": str(parquet_path),
+                    }
+        else:
+            rows = cur.fetchall()
+            for (
+                collection,
+                shard_file,
+                url,
+                ts,
+                status,
+                mime,
+                digest,
+                warc_filename,
+                warc_offset,
+                warc_length,
+            ) in rows:
+                yield {
+                    "collection": _infer_collection(collection, warc_filename),
+                    "shard_file": shard_file,
+                    "url": url,
+                    "timestamp": ts,
+                    "status": int(status) if status is not None else None,
+                    "mime": mime,
+                    "digest": digest,
+                    "warc_filename": warc_filename,
+                    "warc_offset": int(warc_offset) if warc_offset is not None else None,
+                    "warc_length": int(warc_length) if warc_length is not None else None,
+                    "parquet_path": str(parquet_path),
+                }
     finally:
         con.close()
 
 
-def search_domain_via_meta_indexes(
+def iter_domain_records_via_meta_indexes(
     domain_or_url: str,
     *,
     parquet_root: Path = Path("/storage/ccindex_parquet"),
@@ -1123,10 +1163,14 @@ def search_domain_via_meta_indexes(
     max_parquet_files: int = 200,
     max_matches: int = 200,
     per_parquet_limit: int = 2000,
-) -> MetaIndexSearchResult:
-    """Search using master/year meta-indexes to find candidate WARC pointers.
+    stats_out: Optional[Dict[str, object]] = None,
+) -> Iterator[Dict[str, object]]:
+    """Stream candidate CCIndex pointer records for a domain.
 
-    Returns records similar to `search_cc_via_meta_indexes.py` JSONL output.
+    Semantics: for max_parquet_files/max_matches/per_parquet_limit, a non-positive
+    value means "no cap".
+
+    This is a streaming-friendly alternative to `search_domain_via_meta_indexes()`.
     """
 
     dom = normalize_domain(domain_or_url)
@@ -1140,8 +1184,6 @@ def search_domain_via_meta_indexes(
     parquet_root = Path(parquet_root).expanduser().resolve()
     if not parquet_root.exists():
         raise FileNotFoundError(f"Parquet root does not exist: {parquet_root}")
-
-    t0 = time.perf_counter()
 
     # 1) Discover collections via meta-index layer.
     if collection_db is not None:
@@ -1166,21 +1208,28 @@ def search_domain_via_meta_indexes(
         collections = load_collections_from_master(mdb, year)
         meta_source = f"master-db:{mdb}"
 
+    if stats_out is not None:
+        stats_out["meta_source"] = meta_source
+        stats_out["collections_considered"] = len(collections)
+
     if not collections:
-        return MetaIndexSearchResult(
-            records=[],
-            emitted=0,
-            elapsed_s=time.perf_counter() - t0,
-            meta_source=meta_source,
-            collections_considered=0,
-        )
+        return
+
+    # Normalize cap semantics.
+    max_matches_i = int(max_matches)
+    max_matches_cap: Optional[int] = None if max_matches_i <= 0 else max_matches_i
+
+    max_parquet_files_i = int(max_parquet_files)
+    max_parquet_files_cap: Optional[int] = None if max_parquet_files_i <= 0 else max_parquet_files_i
+
+    per_parquet_limit_i = int(per_parquet_limit)
+    per_parquet_limit_cap: Optional[int] = None if per_parquet_limit_i <= 0 else per_parquet_limit_i
 
     emitted = 0
-    records: List[Dict[str, object]] = []
 
     # 2) For each collection DB: find parquet shards, then expand to WARC pointers.
     for cref in collections:
-        if emitted >= int(max_matches):
+        if max_matches_cap is not None and emitted >= max_matches_cap:
             break
 
         collection_db_path = cref.collection_db_path
@@ -1191,27 +1240,78 @@ def search_domain_via_meta_indexes(
         if not parquet_relpaths:
             continue
 
-        parquet_relpaths = parquet_relpaths[: max(0, int(max_parquet_files))]
+        if max_parquet_files_cap is not None:
+            parquet_relpaths = parquet_relpaths[: max(0, max_parquet_files_cap)]
 
         parquet_dir = get_collection_parquet_dir(parquet_root, cref.collection)
         if not parquet_dir.exists():
             continue
 
         for rel in parquet_relpaths:
-            if emitted >= int(max_matches):
+            if max_matches_cap is not None and emitted >= max_matches_cap:
                 break
 
             parquet_path = (parquet_dir / rel).resolve()
             if not parquet_path.exists():
                 continue
 
-            remaining = int(max_matches) - emitted
-            per_file_limit = min(int(per_parquet_limit), remaining)
-            for rec in iter_warc_candidates_from_parquet(parquet_path, host_rev_prefix, limit=per_file_limit):
-                records.append(rec)
+            remaining: Optional[int]
+            if max_matches_cap is None:
+                remaining = None
+            else:
+                remaining = max_matches_cap - emitted
+
+            if remaining is None and per_parquet_limit_cap is None:
+                per_file_limit = 0
+            elif remaining is None and per_parquet_limit_cap is not None:
+                per_file_limit = per_parquet_limit_cap
+            elif remaining is not None and per_parquet_limit_cap is None:
+                per_file_limit = remaining
+            else:
+                per_file_limit = min(per_parquet_limit_cap or 0, remaining or 0)
+
+            for rec in iter_warc_candidates_from_parquet(parquet_path, host_rev_prefix, limit=int(per_file_limit)):
+                yield rec
                 emitted += 1
-                if emitted >= int(max_matches):
+                if max_matches_cap is not None and emitted >= max_matches_cap:
                     break
+
+
+def search_domain_via_meta_indexes(
+    domain_or_url: str,
+    *,
+    parquet_root: Path = Path("/storage/ccindex_parquet"),
+    master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
+    year_db: Optional[Path] = None,
+    collection_db: Optional[Path] = None,
+    year: Optional[str] = None,
+    max_parquet_files: int = 200,
+    max_matches: int = 200,
+    per_parquet_limit: int = 2000,
+) -> MetaIndexSearchResult:
+    """Search using master/year meta-indexes to find candidate WARC pointers.
+
+    Returns records similar to `search_cc_via_meta_indexes.py` JSONL output.
+    """
+
+    t0 = time.perf_counter()
+    stats: Dict[str, object] = {}
+    records: List[Dict[str, object]] = []
+    emitted = 0
+    for rec in iter_domain_records_via_meta_indexes(
+        domain_or_url,
+        parquet_root=parquet_root,
+        master_db=master_db,
+        year_db=year_db,
+        collection_db=collection_db,
+        year=year,
+        max_parquet_files=max_parquet_files,
+        max_matches=max_matches,
+        per_parquet_limit=per_parquet_limit,
+        stats_out=stats,
+    ):
+        records.append(rec)
+        emitted += 1
 
     # Prefer records that are more likely to render as a "Wayback" page.
     # This improves the dashboard UX (and makes automated UI flows deterministic).
@@ -1246,8 +1346,8 @@ def search_domain_via_meta_indexes(
         records=records,
         emitted=emitted,
         elapsed_s=dt,
-        meta_source=meta_source,
-        collections_considered=len(collections),
+        meta_source=str(stats.get("meta_source") or ""),
+        collections_considered=int(stats.get("collections_considered") or 0),
     )
 
 
@@ -3597,7 +3697,10 @@ def _default_warc_cache_dir() -> Optional[Path]:
         return None
     if env:
         return Path(env)
-    return Path("state") / "warc_cache"
+
+    # Default for this repo: keep cache artifacts under datasets/ so they can be
+    # treated as build outputs and easily moved/archived.
+    return Path("datasets") / "CCINDEX_WARC_CACHE_DIR" / "ranges"
 
 
 def _default_full_warc_cache_dir() -> Optional[Path]:
@@ -3928,6 +4031,10 @@ def _http_range_get_cached(
 ) -> Tuple[Optional[int], Optional[bytes], Optional[str]]:
     """Return (status, data, error). Uses a best-effort on-disk cache."""
 
+    import os as _os
+    import time as _time
+    import sys as _sys
+
     bytes_requested = int(end_inclusive) - int(start) + 1
 
     cache_path: Optional[Path] = None
@@ -3940,7 +4047,12 @@ def _http_range_get_cached(
                 if cache_path.exists() and cache_path.is_file():
                     try:
                         if cache_path.stat().st_size == bytes_requested:
-                            return 206, cache_path.read_bytes(), None
+                            data = cache_path.read_bytes()
+                            if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
+                                _sys.stderr.write(
+                                    f"cc_warc_range cache_hit bytes={bytes_requested} start={int(start)} end={int(end_inclusive)} url={url}\n"
+                                )
+                            return 206, data, None
                     except Exception:
                         pass
         except Exception:
@@ -3949,6 +4061,7 @@ def _http_range_get_cached(
     req = urllib.request.Request(url, method="GET")
     req.add_header("Range", f"bytes={int(start)}-{int(end_inclusive)}")
 
+    t0 = _time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=float(timeout_s)) as resp:
             status = int(getattr(resp, "status", 200))
@@ -3957,6 +4070,17 @@ def _http_range_get_cached(
                 # a multi-GB response.
                 return status, None, f"expected 206 for range GET, got {status}"
             data = resp.read()
+
+        if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
+            dt = max(1e-6, _time.perf_counter() - t0)
+            bps = (len(data) / dt) if data is not None else 0.0
+            slow_ms = int(_os.environ.get("CCINDEX_WARC_FETCH_LOG_SLOW_MS", "2000") or "2000")
+            # Emit only for slow requests by default; set threshold to 0 to log everything.
+            if slow_ms <= 0 or (dt * 1000.0) >= float(slow_ms):
+                _sys.stderr.write(
+                    f"cc_warc_range net status={status} bytes={len(data) if data is not None else 0}/{bytes_requested} "
+                    f"dt_s={dt:.3f} bps={bps:.1f} start={int(start)} end={int(end_inclusive)} url={url}\n"
+                )
 
         if cache_path is not None and data is not None:
             try:
@@ -3976,10 +4100,25 @@ def _http_range_get_cached(
         return status, data, None
     except urllib.error.HTTPError as e:
         code = int(getattr(e, "code", 0)) if getattr(e, "code", None) is not None else None
+        if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
+            dt = max(1e-6, _time.perf_counter() - t0)
+            _sys.stderr.write(
+                f"cc_warc_range http_error status={code} dt_s={dt:.3f} start={int(start)} end={int(end_inclusive)} url={url}\n"
+            )
         return code, None, f"HTTPError {getattr(e, 'code', '?')}"
     except urllib.error.URLError as e:
+        if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
+            dt = max(1e-6, _time.perf_counter() - t0)
+            _sys.stderr.write(
+                f"cc_warc_range url_error dt_s={dt:.3f} start={int(start)} end={int(end_inclusive)} url={url} reason={getattr(e, 'reason', e)}\n"
+            )
         return None, None, f"URLError {getattr(e, 'reason', e)}"
     except Exception as e:
+        if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
+            dt = max(1e-6, _time.perf_counter() - t0)
+            _sys.stderr.write(
+                f"cc_warc_range exception dt_s={dt:.3f} start={int(start)} end={int(end_inclusive)} url={url} err={type(e).__name__}: {e}\n"
+            )
         return None, None, f"{type(e).__name__}: {e}"
 
 
@@ -4364,6 +4503,7 @@ def fetch_warc_record_ranges_sliced(
     timeout_s: float = 30.0,
     max_slice_bytes: int = 25_000_000,
     max_gap_bytes: int = 256_000,
+    min_slice_bytes: int = 0,
     max_workers: int = 1,
     cache_dir: Optional[Path] = None,
     cache_max_bytes: int = 2_000_000_000,
@@ -4404,6 +4544,25 @@ def fetch_warc_record_ranges_sliced(
         max_slice_bytes=int(max_slice_bytes),
         max_gap_bytes=int(max_gap_bytes),
     )
+
+    # Optionally expand each slice to at least min_slice_bytes to amortize per-request overhead.
+    # This may fetch extra bytes that are not part of any record, but can greatly improve
+    # effective throughput when servers deliver high bandwidth only for larger transfers.
+    min_sb = int(min_slice_bytes) if min_slice_bytes is not None else 0
+    if min_sb > 0:
+        expanded: List[Tuple[int, int, List[Tuple[int, int]]]] = []
+        for s0, s1, mem in slices:
+            cur_len = int(s1) - int(s0) + 1
+            if cur_len >= min_sb:
+                expanded.append((int(s0), int(s1), mem))
+                continue
+            # Expand forward (keep start fixed to preserve member offset math).
+            new_s1 = int(s0) + int(min_sb) - 1
+            # Respect max_slice_bytes if set (>0).
+            if int(max_slice_bytes) > 0:
+                new_s1 = min(int(new_s1), int(s0) + int(max_slice_bytes) - 1)
+            expanded.append((int(s0), int(new_s1), mem))
+        slices = expanded
 
     if cache_dir is None:
         cache_dir = _default_warc_cache_dir()

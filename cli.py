@@ -1070,6 +1070,13 @@ def main(argv: list[str] | None = None) -> int:
     ap_pointers.add_argument("argv", nargs=argparse.REMAINDER)
     ap_pointers.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_pointers_from_csv", a.argv))
 
+    ap_pointers_jsonl = sub_plan.add_parser(
+        "pointers-from-jsonl",
+        help="Search CC index for all domains in a JSONL (e.g. state_agencies_all.jsonl), emit pointers.parquet (zstd)",
+    )
+    ap_pointers_jsonl.add_argument("argv", nargs=argparse.REMAINDER)
+    ap_pointers_jsonl.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_pointers_from_jsonl", a.argv))
+
     ap_slices = sub_plan.add_parser("slices-from-pointers", help="Compile a canonical slice plan from pointer JSONL")
     ap_slices.add_argument("argv", nargs=argparse.REMAINDER)
     ap_slices.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_slices_from_pointers", a.argv))

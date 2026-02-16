@@ -313,6 +313,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "run_id": str(run_id),
                     "pointers_jsonl": (str(out_jsonl) if out_jsonl is not None else None),
                     "pointers_parquet": (str(out_parquet) if out_parquet is not None else None),
+                    "pointers_parquet_inprogress": (
+                        (str(Path(str(out_parquet) + ".inprogress")) if out_parquet is not None else None)
+                    ),
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -336,11 +339,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parquet_lock = __import__("threading").Lock()
     parquet_writer = None
     parquet_schema = None
+    out_parquet_tmp = None
     if out_parquet is not None:
+        out_parquet_tmp = Path(str(out_parquet) + ".inprogress")
+        try:
+            out_parquet_tmp.unlink()
+        except FileNotFoundError:
+            pass
+
         pa, pq = _require_pyarrow()
         parquet_schema = _parquet_schema(pa)
         parquet_writer = pq.ParquetWriter(
-            str(out_parquet),
+            str(out_parquet_tmp),
             parquet_schema,
             compression="zstd",
             use_dictionary=True,
@@ -441,6 +451,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             parquet_writer.close()
         except Exception:
             pass
+
+        if failed == 0 and out_parquet_tmp is not None:
+            try:
+                __import__("os").replace(str(out_parquet_tmp), str(out_parquet))
+            except Exception:
+                pass
 
     sys.stderr.write(
         f"ok={(1 if failed==0 else 0)} domains={len(domains)} completed={completed} failed={failed} "

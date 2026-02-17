@@ -484,9 +484,15 @@ def _two_stage_sort_parquet_file(
     temp_directory: Path,
     row_group_size: Optional[int],
 ) -> Tuple[bool, str]:
-    """Two-stage sort: stage1 ORDER BY host_rev; stage2 sort within each host_rev by (url, ts).
+    """Crash-only fallback using *single-key* sorts.
 
-    This avoids a single global wide-key sort, and is used as a crash-only fallback.
+    Goal: produce the same ordering as `ORDER BY host_rev, url, ts` while never
+    asking DuckDB (or Arrow) to sort by multiple keys at once.
+
+    Strategy
+    - Stage 1: ORDER BY host_rev (single key)
+    - Stage 2: within each host_rev run, ORDER BY url (single key)
+    - Stage 3: within each (host_rev, url) run, ORDER BY ts (single key)
     """
 
     # Stage 1: DuckDB sort by host_rev only (stable path).
@@ -506,13 +512,13 @@ def _two_stage_sort_parquet_file(
     if crash1:
         return False, f"two-stage stage1(host_rev) crashed: {tail1 or 'unknown'}"
 
-    # Stage 2: per-host_rev sort by url, ts.
+    # Stage 2+3: per-host_rev sort by url, then per-url sort by ts.
     try:
         pf = pq.ParquetFile(stage1_path)
         schema = pf.schema_arrow
         writer = pq.ParquetWriter(str(output_file), schema=schema, compression="zstd")
 
-        run_dir = temp_directory / ("two_stage_runs_" + output_file.name.replace(os.sep, "_"))
+        run_dir = temp_directory / ("three_stage_runs_" + output_file.name.replace(os.sep, "_"))
         run_dir.mkdir(parents=True, exist_ok=True)
 
         current_host: Optional[str] = None
@@ -538,23 +544,50 @@ def _two_stage_sort_parquet_file(
 
             _close_run_writer()
 
-            # For small runs, use Arrow in-memory sort.
-            small_threshold = 250_000
-            sorted_run_path: Optional[Path] = None
-            if run_rows <= small_threshold:
+            batch_size = 65_536
+            ts_in_memory_threshold = 200_000
+
+            def _write_url_sorted_table_with_ts_refinement(url_sorted: pa.Table) -> Tuple[bool, str]:
+                if "url" not in url_sorted.schema.names or "ts" not in url_sorted.schema.names:
+                    return False, "missing url/ts column"
+
+                url_arr = url_sorted["url"]
+                ree = pc.run_end_encode(url_arr)
+                run_ends = [int(x) for x in ree.field("run_ends").to_pylist()]
+
+                start = 0
+                for end_i in run_ends:
+                    if end_i <= start:
+                        continue
+                    t_run = url_sorted.slice(start, end_i - start)
+                    start = end_i
+                    # Single-key sort within the url run.
+                    idx_ts = pc.sort_indices(t_run, sort_keys=[("ts", "ascending")])
+                    t_ts = t_run.take(idx_ts)
+                    writer.write_table(
+                        t_ts,
+                        row_group_size=int(row_group_size) if row_group_size is not None else None,
+                    )
+
+                return True, ""
+
+            # For small host runs, do url sort + per-url ts sort in memory (single-key only).
+            if run_rows <= ts_in_memory_threshold:
                 t = pq.read_table(run_path)
-                idx = pc.sort_indices(t, sort_keys=[("url", "ascending"), ("ts", "ascending")])
-                t2 = t.take(idx)
-                writer.write_table(
-                    t2,
-                    row_group_size=int(row_group_size) if row_group_size is not None else None,
-                )
+                if "url" not in t.schema.names or "ts" not in t.schema.names:
+                    return False, "missing url/ts column"
+                idx_url = pc.sort_indices(t, sort_keys=[("url", "ascending")])
+                t_url = t.take(idx_url)
+                ok_in, msg_in = _write_url_sorted_table_with_ts_refinement(t_url)
+                if not ok_in:
+                    return False, f"three-stage in-memory failed for host_rev={current_host}: {msg_in}"
             else:
-                sorted_run_path = run_path.with_suffix(run_path.suffix + ".sorted.parquet")
+                # For large host runs: url sort via DuckDB (single key), then stream and sort ts per-url run.
+                url_sorted_path = run_path.with_suffix(run_path.suffix + ".urlsorted.parquet")
                 ok2, tail2, crash2 = _duckdb_sort_subprocess(
                     input_file=run_path,
-                    output_file=sorted_run_path,
-                    order_by="url, ts",
+                    output_file=url_sorted_path,
+                    order_by="url",
                     memory_limit_gb=float(memory_limit_gb),
                     temp_directory=temp_directory,
                     read_via_arrow=False,
@@ -562,25 +595,142 @@ def _two_stage_sort_parquet_file(
                     threads=1,
                 )
                 if not ok2 or crash2:
-                    return False, f"two-stage stage2(url,ts) failed for host_rev={current_host}: {tail2 or 'unknown'}"
-                pf2 = pq.ParquetFile(sorted_run_path)
-                batch_size = 65_536
-                for b in pf2.iter_batches(batch_size=batch_size):
-                    writer.write_table(
-                        pa.Table.from_batches([b]),
-                        row_group_size=int(row_group_size) if row_group_size is not None else None,
-                    )
+                    return False, f"three-stage stage2(url) failed for host_rev={current_host}: {tail2 or 'unknown'}"
 
-            # Cleanup per-run temp files.
+                pf2 = pq.ParquetFile(url_sorted_path)
+                current_url: Optional[str] = None
+                url_batches: list[pa.RecordBatch] = []
+                url_rows = 0
+                url_spool_path: Optional[Path] = None
+                url_spool_writer: Optional[pq.ParquetWriter] = None
+                url_run_idx = 0
+
+                def _close_url_spool() -> None:
+                    nonlocal url_spool_writer
+                    if url_spool_writer is not None:
+                        url_spool_writer.close()
+                        url_spool_writer = None
+
+                def _flush_url_run() -> Tuple[bool, str]:
+                    nonlocal current_url, url_batches, url_rows, url_spool_path, url_spool_writer, url_run_idx
+                    if current_url is None or url_rows <= 0:
+                        _close_url_spool()
+                        url_batches = []
+                        url_rows = 0
+                        url_spool_path = None
+                        current_url = None
+                        return True, ""
+
+                    if url_spool_writer is not None and url_spool_path is not None:
+                        _close_url_spool()
+                        ts_sorted_path = url_spool_path.with_suffix(url_spool_path.suffix + ".tssorted.parquet")
+                        ok3, tail3, crash3 = _duckdb_sort_subprocess(
+                            input_file=url_spool_path,
+                            output_file=ts_sorted_path,
+                            order_by="ts",
+                            memory_limit_gb=float(memory_limit_gb),
+                            temp_directory=temp_directory,
+                            read_via_arrow=False,
+                            row_group_size=row_group_size,
+                            threads=1,
+                        )
+                        if not ok3 or crash3:
+                            return False, f"three-stage stage3(ts) failed for host_rev={current_host} url={current_url}: {tail3 or 'unknown'}"
+
+                        pf3 = pq.ParquetFile(ts_sorted_path)
+                        for b3 in pf3.iter_batches(batch_size=batch_size):
+                            writer.write_table(
+                                pa.Table.from_batches([b3]),
+                                row_group_size=int(row_group_size) if row_group_size is not None else None,
+                            )
+                        try:
+                            url_spool_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        try:
+                            ts_sorted_path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                    else:
+                        t_run = pa.Table.from_batches(url_batches)
+                        idx_ts = pc.sort_indices(t_run, sort_keys=[("ts", "ascending")])
+                        t_ts = t_run.take(idx_ts)
+                        writer.write_table(
+                            t_ts,
+                            row_group_size=int(row_group_size) if row_group_size is not None else None,
+                        )
+
+                    url_batches = []
+                    url_rows = 0
+                    url_spool_path = None
+                    current_url = None
+                    url_run_idx += 1
+                    return True, ""
+
+                for b2 in pf2.iter_batches(batch_size=batch_size):
+                    if b2.num_rows == 0:
+                        continue
+                    if "url" not in b2.schema.names or "ts" not in b2.schema.names:
+                        return False, "missing url/ts column"
+
+                    url_arr = b2.column(b2.schema.get_field_index("url"))
+                    ree2 = pc.run_end_encode(url_arr)
+                    run_ends2 = [int(x) for x in ree2.field("run_ends").to_pylist()]
+                    raw_vals = ree2.field("values").to_pylist()
+                    run_vals2: list[Optional[str]] = []
+                    for v in raw_vals:
+                        if v is None:
+                            run_vals2.append(None)
+                        else:
+                            try:
+                                run_vals2.append(str(v.as_py()))
+                            except Exception:
+                                run_vals2.append(str(v))
+
+                    start2 = 0
+                    for end2, url_val in zip(run_ends2, run_vals2):
+                        end_i2 = int(end2)
+                        if end_i2 <= start2:
+                            continue
+                        slice_b = b2.slice(start2, end_i2 - start2)
+                        start2 = end_i2
+                        url_s = str(url_val) if url_val is not None else ""
+
+                        if current_url is None:
+                            current_url = url_s
+                        if url_s != current_url:
+                            okf, msgf = _flush_url_run()
+                            if not okf:
+                                return False, msgf
+                            current_url = url_s
+
+                        if url_spool_writer is not None and url_spool_path is not None:
+                            url_spool_writer.write_table(pa.Table.from_batches([slice_b]))
+                        else:
+                            url_batches.append(slice_b)
+                        url_rows += int(slice_b.num_rows)
+
+                        if url_spool_writer is None and url_rows > ts_in_memory_threshold:
+                            url_spool_path = run_dir / f"urlrun_{run_idx:06d}_{url_run_idx:06d}.parquet"
+                            url_spool_writer = pq.ParquetWriter(str(url_spool_path), schema=schema, compression="zstd")
+                            for bb in url_batches:
+                                url_spool_writer.write_table(pa.Table.from_batches([bb]))
+                            url_batches = []
+
+                ok_last, msg_last = _flush_url_run()
+                if not ok_last:
+                    return False, msg_last
+
+                try:
+                    url_sorted_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
+
+            # Cleanup per-host temp input.
             try:
                 run_path.unlink(missing_ok=True)
             except Exception:
                 pass
-            if sorted_run_path is not None:
-                try:
-                    sorted_run_path.unlink(missing_ok=True)
-                except Exception:
-                    pass
 
             run_path = None
             run_rows = 0
@@ -594,14 +744,23 @@ def _two_stage_sort_parquet_file(
                 continue
 
             if "host_rev" not in batch.schema.names:
-                return False, "two-stage: missing host_rev column"
+                return False, "three-stage: missing host_rev column"
             if "url" not in batch.schema.names or "ts" not in batch.schema.names:
-                return False, "two-stage: missing url/ts column"
+                return False, "three-stage: missing url/ts column"
 
             host_arr = batch.column(batch.schema.get_field_index("host_rev"))
             ree = pc.run_end_encode(host_arr)
             run_ends = ree.field("run_ends").to_pylist()
-            run_vals = [v.as_py() if v is not None else None for v in ree.field("values").to_pylist()]
+            raw_vals = ree.field("values").to_pylist()
+            run_vals: list[Optional[str]] = []
+            for v in raw_vals:
+                if v is None:
+                    run_vals.append(None)
+                else:
+                    try:
+                        run_vals.append(str(v.as_py()))
+                    except Exception:
+                        run_vals.append(str(v))
 
             start = 0
             for end, host_val in zip(run_ends, run_vals):
@@ -638,7 +797,7 @@ def _two_stage_sort_parquet_file(
         writer.close()
         return True, ""
     except Exception as e:
-        return False, f"two-stage exception: {e}"
+        return False, f"three-stage exception: {e}"
     finally:
         try:
             stage1_path.unlink(missing_ok=True)
@@ -963,28 +1122,11 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
                 # Non-OOM errors usually won't benefit from row_group_size tweaking.
                 break
 
-        # Crash-only fallbacks: Arrow read path, then two-stage per-host sort,
-        # and finally host_rev-only as a last resort.
+        # Crash-only fallbacks: avoid multi-key sorts.
+        # We go straight to a single-key-only, multi-pass fallback and then
+        # host_rev-only as a last resort.
         if not sort_ok and crash_like:
-            # 1) Retry wide-key sort using Arrow read path (can dodge some native paths).
-            try:
-                os.environ["CC_SORT_DUCKDB_READ_VIA_ARROW"] = "1"
-                ok2, err2 = sort_parquet_file(
-                    src,
-                    sorted_tmp,
-                    memory_per_sort_gb,
-                    temp_directory=duckdb_temp_dir,
-                    row_group_size=row_group_size,
-                )
-                if ok2:
-                    sort_ok = True
-                else:
-                    last_err = f"arrow retry failed: {err2}"
-            finally:
-                os.environ.pop("CC_SORT_DUCKDB_READ_VIA_ARROW", None)
-
-        if not sort_ok and crash_like:
-            # 2) Two-stage sort (host_rev, then within-host url+ts).
+            # 1) Three-stage single-key sort: host_rev -> url -> ts.
             ok3, err3 = _two_stage_sort_parquet_file(
                 src,
                 sorted_tmp,
@@ -995,10 +1137,10 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
             if ok3:
                 sort_ok = True
             else:
-                last_err = f"two-stage fallback failed: {err3}"
+                last_err = f"single-key fallback failed: {err3}"
 
         if not sort_ok and crash_like:
-            # 3) Last resort: host_rev-only sort.
+            # 2) Last resort: host_rev-only sort.
             ok4, tail4, crash4 = _duckdb_sort_subprocess(
                 input_file=src,
                 output_file=sorted_tmp,

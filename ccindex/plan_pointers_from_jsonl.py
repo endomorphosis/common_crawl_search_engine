@@ -110,7 +110,16 @@ def _url_to_domain(url_or_host: str) -> Optional[str]:
         host = api.normalize_domain(s)
 
     host = api.normalize_domain(host)
-    return host or None
+
+    # Reject obviously invalid domains/hosts that can appear in noisy inputs.
+    # Examples: ".gov", "wv..gov", leading/trailing dot.
+    if not host:
+        return None
+    if host.startswith(".") or host.endswith("."):
+        return None
+    if ".." in host:
+        return None
+    return host
 
 
 @dataclass(frozen=True)

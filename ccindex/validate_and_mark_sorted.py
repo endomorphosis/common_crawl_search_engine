@@ -25,8 +25,10 @@ import multiprocessing
 import os
 import statistics
 import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 import uuid
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, as_completed, wait
@@ -36,7 +38,115 @@ from typing import List, Optional, Tuple
 
 import duckdb
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
+
+
+_SIGSEGV_RETURN_CODES = {-11, 139}
+
+
+def _is_segfault_returncode(rc: int) -> bool:
+    return int(rc) in _SIGSEGV_RETURN_CODES
+
+
+def _duckdb_sort_subprocess(
+    *,
+    input_file: Path,
+    output_file: Path,
+    order_by: str,
+    memory_limit_gb: float,
+    temp_directory: Path,
+    read_via_arrow: bool,
+    row_group_size: Optional[int],
+    threads: int = 1,
+) -> Tuple[bool, str, bool]:
+    """Run DuckDB COPY(..ORDER BY..) in a subprocess.
+
+    This isolates native DuckDB failures (e.g. SIGSEGV) so they don't crash the
+    process pool worker.
+
+    Returns: (ok, message_tail, crash_like)
+    """
+
+    code = textwrap.dedent(
+        """
+        import os
+        import duckdb
+
+        in_path = __IN_PATH__
+        out_path = __OUT_PATH__
+        order_by = __ORDER_BY__
+        memory_gb = __MEMORY_GB__
+        temp_dir = __TEMP_DIR__
+        read_via_arrow = __READ_VIA_ARROW__
+        row_group_size = __ROW_GROUP_SIZE__
+        threads = __THREADS__
+
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        os.makedirs(temp_dir, exist_ok=True)
+
+        con = duckdb.connect(database=":memory:")
+        con.execute("SET memory_limit='" + str(memory_gb) + "GB'")
+        con.execute("SET preserve_insertion_order=false")
+        con.execute("SET temp_directory='" + temp_dir.replace("'", "''") + "'")
+        con.execute("PRAGMA threads=" + str(int(threads)))
+
+        if read_via_arrow:
+            import pyarrow.parquet as pq
+            t = pq.read_table(in_path)
+            con.register("_src", t)
+            src_sql = "_src"
+        else:
+            in_path_sql = in_path.replace("'", "''")
+            src_sql = "read_parquet('" + in_path_sql + "')"
+
+        out_path_sql = out_path.replace("'", "''")
+
+        copy_opts = ["FORMAT 'parquet'", "COMPRESSION 'zstd'"]
+        if row_group_size is not None and int(row_group_size) > 0:
+            copy_opts.append("ROW_GROUP_SIZE " + str(int(row_group_size)))
+        opt_sql = ", ".join(copy_opts)
+
+        q = "COPY (SELECT * FROM " + src_sql + " ORDER BY " + order_by + ") TO '" + out_path_sql + "' (" + opt_sql + ")"
+        con.execute(q)
+        print("OK")
+        """
+    ).strip()
+
+    rendered = (
+        code.replace("__IN_PATH__", repr(str(input_file)))
+        .replace("__OUT_PATH__", repr(str(output_file)))
+        .replace("__ORDER_BY__", repr(str(order_by)))
+        .replace("__MEMORY_GB__", repr(float(memory_limit_gb)))
+        .replace("__TEMP_DIR__", repr(str(temp_directory)))
+        .replace("__READ_VIA_ARROW__", repr(bool(read_via_arrow)))
+        .replace(
+            "__ROW_GROUP_SIZE__",
+            repr(int(row_group_size) if row_group_size is not None and int(row_group_size) > 0 else None),
+        )
+        .replace("__THREADS__", repr(int(threads)))
+    )
+
+    env = dict(os.environ)
+    env.setdefault("PYTHONFAULTHANDLER", "1")
+
+    p = subprocess.run(
+        [sys.executable, "-c", rendered],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    tail = (p.stdout or "")[-8000:]
+
+    crash_like = _is_segfault_returncode(int(p.returncode))
+    if not crash_like:
+        low = tail.lower()
+        if "segmentation fault" in low or "fatal python error" in low:
+            crash_like = True
+
+    ok = int(p.returncode) == 0 and ("OK" in tail)
+    return ok, tail.strip(), crash_like
 
 
 def _parquet_has_columns(parquet_file: Path, required: set[str]) -> bool:
@@ -341,44 +451,199 @@ def sort_parquet_file(
 ) -> Tuple[bool, str]:
     """Sort a parquet file by host_rev, url, ts using DuckDB."""
 
+    td = temp_directory if temp_directory else output_file.parent
     try:
-        con = duckdb.connect(":memory:")
-        con.execute(f"SET memory_limit='{memory_limit_gb}GB'")
-        # Reduce memory pressure for large sorts.
-        con.execute("SET preserve_insertion_order=false")
-        # Isolate DuckDB temp usage per-sort to avoid contention.
-        td = temp_directory if temp_directory else output_file.parent
-        con.execute(f"SET temp_directory='{td}'")
-        con.execute("PRAGMA threads=1")
+        Path(td).mkdir(parents=True, exist_ok=True)
+    except Exception:
+        td = output_file.parent
 
-        # DuckDB parameter binding inside COPY/TO can be surprising; use escaped literals.
-        in_path = str(input_file).replace("'", "''")
-        out_path = str(output_file).replace("'", "''")
-        copy_opts = ["FORMAT 'parquet'", "COMPRESSION 'zstd'"]
-        if row_group_size is not None:
+    ok, out_tail, crash_like = _duckdb_sort_subprocess(
+        input_file=input_file,
+        output_file=output_file,
+        order_by="host_rev, url, ts",
+        memory_limit_gb=float(memory_limit_gb),
+        temp_directory=Path(td),
+        read_via_arrow=bool(os.environ.get("CC_SORT_DUCKDB_READ_VIA_ARROW", "0") == "1"),
+        row_group_size=row_group_size,
+        threads=1,
+    )
+    if ok:
+        return True, ""
+    msg = out_tail or "duckdb sort failed"
+    if crash_like:
+        msg = f"duckdb sort crashed (subprocess rc indicates segfault): {msg}"
+    print(f"❌ Error sorting {input_file.name}: {msg}", file=sys.stderr)
+    return False, msg
+
+
+def _two_stage_sort_parquet_file(
+    input_file: Path,
+    output_file: Path,
+    *,
+    memory_limit_gb: float,
+    temp_directory: Path,
+    row_group_size: Optional[int],
+) -> Tuple[bool, str]:
+    """Two-stage sort: stage1 ORDER BY host_rev; stage2 sort within each host_rev by (url, ts).
+
+    This avoids a single global wide-key sort, and is used as a crash-only fallback.
+    """
+
+    # Stage 1: DuckDB sort by host_rev only (stable path).
+    stage1_path = output_file.with_suffix(output_file.suffix + ".stage1_hostrev.parquet")
+    ok1, tail1, crash1 = _duckdb_sort_subprocess(
+        input_file=input_file,
+        output_file=stage1_path,
+        order_by="host_rev",
+        memory_limit_gb=float(memory_limit_gb),
+        temp_directory=temp_directory,
+        read_via_arrow=False,
+        row_group_size=row_group_size,
+        threads=1,
+    )
+    if not ok1:
+        return False, f"two-stage stage1(host_rev) failed: {tail1 or 'unknown'}"
+    if crash1:
+        return False, f"two-stage stage1(host_rev) crashed: {tail1 or 'unknown'}"
+
+    # Stage 2: per-host_rev sort by url, ts.
+    try:
+        pf = pq.ParquetFile(stage1_path)
+        schema = pf.schema_arrow
+        writer = pq.ParquetWriter(str(output_file), schema=schema, compression="zstd")
+
+        run_dir = temp_directory / ("two_stage_runs_" + output_file.name.replace(os.sep, "_"))
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        current_host: Optional[str] = None
+        run_writer: Optional[pq.ParquetWriter] = None
+        run_path: Optional[Path] = None
+        run_rows = 0
+        run_idx = 0
+
+        def _close_run_writer() -> None:
+            nonlocal run_writer
+            if run_writer is not None:
+                run_writer.close()
+                run_writer = None
+
+        def _flush_run() -> Tuple[bool, str]:
+            nonlocal run_path, run_rows, run_idx, current_host
+            if run_path is None or run_rows <= 0:
+                _close_run_writer()
+                run_path = None
+                run_rows = 0
+                current_host = None
+                return True, ""
+
+            _close_run_writer()
+
+            # For small runs, use Arrow in-memory sort.
+            small_threshold = 250_000
+            sorted_run_path: Optional[Path] = None
+            if run_rows <= small_threshold:
+                t = pq.read_table(run_path)
+                idx = pc.sort_indices(t, sort_keys=[("url", "ascending"), ("ts", "ascending")])
+                t2 = t.take(idx)
+                writer.write_table(
+                    t2,
+                    row_group_size=int(row_group_size) if row_group_size is not None else None,
+                )
+            else:
+                sorted_run_path = run_path.with_suffix(run_path.suffix + ".sorted.parquet")
+                ok2, tail2, crash2 = _duckdb_sort_subprocess(
+                    input_file=run_path,
+                    output_file=sorted_run_path,
+                    order_by="url, ts",
+                    memory_limit_gb=float(memory_limit_gb),
+                    temp_directory=temp_directory,
+                    read_via_arrow=False,
+                    row_group_size=row_group_size,
+                    threads=1,
+                )
+                if not ok2 or crash2:
+                    return False, f"two-stage stage2(url,ts) failed for host_rev={current_host}: {tail2 or 'unknown'}"
+                pf2 = pq.ParquetFile(sorted_run_path)
+                batch_size = 65_536
+                for b in pf2.iter_batches(batch_size=batch_size):
+                    writer.write_table(
+                        pa.Table.from_batches([b]),
+                        row_group_size=int(row_group_size) if row_group_size is not None else None,
+                    )
+
+            # Cleanup per-run temp files.
             try:
-                rgs = int(row_group_size)
-                if rgs > 0:
-                    copy_opts.append(f"ROW_GROUP_SIZE {rgs}")
+                run_path.unlink(missing_ok=True)
             except Exception:
                 pass
-        opt_sql = ", ".join(copy_opts)
+            if sorted_run_path is not None:
+                try:
+                    sorted_run_path.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
-        con.execute(
-            """
-            COPY (
-                SELECT * FROM read_parquet('{in_path}')
-                ORDER BY host_rev, url, ts
-            )
-            TO '{out_path}' ({opt_sql})
-            """.format(in_path=in_path, out_path=out_path, opt_sql=opt_sql)
-        )
-        con.close()
+            run_path = None
+            run_rows = 0
+            current_host = None
+            run_idx += 1
+            return True, ""
+
+        batch_size = 65_536
+        for batch in pf.iter_batches(batch_size=batch_size):
+            if batch.num_rows == 0:
+                continue
+
+            if "host_rev" not in batch.schema.names:
+                return False, "two-stage: missing host_rev column"
+            if "url" not in batch.schema.names or "ts" not in batch.schema.names:
+                return False, "two-stage: missing url/ts column"
+
+            host_arr = batch.column(batch.schema.get_field_index("host_rev"))
+            ree = pc.run_end_encode(host_arr)
+            run_ends = ree.field("run_ends").to_pylist()
+            run_vals = [v.as_py() if v is not None else None for v in ree.field("values").to_pylist()]
+
+            start = 0
+            for end, host_val in zip(run_ends, run_vals):
+                end_i = int(end)
+                if end_i <= start:
+                    continue
+                slice_batch = batch.slice(start, end_i - start)
+                start = end_i
+                host_s = str(host_val) if host_val is not None else ""
+
+                if current_host is None:
+                    current_host = host_s
+                    run_path = run_dir / f"run_{run_idx:06d}.parquet"
+                    run_writer = pq.ParquetWriter(str(run_path), schema=schema, compression="zstd")
+                    run_rows = 0
+
+                if host_s != current_host:
+                    okf, msgf = _flush_run()
+                    if not okf:
+                        return False, msgf
+                    current_host = host_s
+                    run_path = run_dir / f"run_{run_idx:06d}.parquet"
+                    run_writer = pq.ParquetWriter(str(run_path), schema=schema, compression="zstd")
+                    run_rows = 0
+
+                assert run_writer is not None
+                run_writer.write_table(pa.Table.from_batches([slice_batch]))
+                run_rows += int(slice_batch.num_rows)
+
+        okf2, msgf2 = _flush_run()
+        if not okf2:
+            return False, msgf2
+
+        writer.close()
         return True, ""
     except Exception as e:
-        msg = str(e)
-        print(f"❌ Error sorting {input_file.name}: {msg}", file=sys.stderr)
-        return False, msg
+        return False, f"two-stage exception: {e}"
+    finally:
+        try:
+            stage1_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def _row_group_sizes_to_try(row_group_size: Optional[int]) -> List[Optional[int]]:
@@ -674,8 +939,12 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
             return str(src), True, "rewritten", str(src)
 
         # Default: sort an unsorted file and produce a sorted sibling.
+        # IMPORTANT: native DuckDB failures can be intermittent and/or crash-like.
+        # We treat crash-like failures as a signal to try safer fallbacks.
         sort_ok = False
         last_err = ""
+        crash_like = False
+
         for rgs_try in _row_group_sizes_to_try(row_group_size):
             ok, err = sort_parquet_file(
                 src,
@@ -688,8 +957,62 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
                 sort_ok = True
                 break
             last_err = err
-            if "Out of Memory" not in (err or ""):
+            low = (err or "").lower()
+            crash_like = crash_like or ("crashed" in low or "segfault" in low or "segmentation fault" in low)
+            if "out of memory" not in low:
+                # Non-OOM errors usually won't benefit from row_group_size tweaking.
                 break
+
+        # Crash-only fallbacks: Arrow read path, then two-stage per-host sort,
+        # and finally host_rev-only as a last resort.
+        if not sort_ok and crash_like:
+            # 1) Retry wide-key sort using Arrow read path (can dodge some native paths).
+            try:
+                os.environ["CC_SORT_DUCKDB_READ_VIA_ARROW"] = "1"
+                ok2, err2 = sort_parquet_file(
+                    src,
+                    sorted_tmp,
+                    memory_per_sort_gb,
+                    temp_directory=duckdb_temp_dir,
+                    row_group_size=row_group_size,
+                )
+                if ok2:
+                    sort_ok = True
+                else:
+                    last_err = f"arrow retry failed: {err2}"
+            finally:
+                os.environ.pop("CC_SORT_DUCKDB_READ_VIA_ARROW", None)
+
+        if not sort_ok and crash_like:
+            # 2) Two-stage sort (host_rev, then within-host url+ts).
+            ok3, err3 = _two_stage_sort_parquet_file(
+                src,
+                sorted_tmp,
+                memory_limit_gb=float(memory_per_sort_gb),
+                temp_directory=duckdb_temp_dir,
+                row_group_size=row_group_size,
+            )
+            if ok3:
+                sort_ok = True
+            else:
+                last_err = f"two-stage fallback failed: {err3}"
+
+        if not sort_ok and crash_like:
+            # 3) Last resort: host_rev-only sort.
+            ok4, tail4, crash4 = _duckdb_sort_subprocess(
+                input_file=src,
+                output_file=sorted_tmp,
+                order_by="host_rev",
+                memory_limit_gb=float(memory_per_sort_gb),
+                temp_directory=duckdb_temp_dir,
+                read_via_arrow=False,
+                row_group_size=row_group_size,
+                threads=1,
+            )
+            if ok4 and not crash4:
+                sort_ok = True
+            else:
+                last_err = f"hostrev-only fallback failed: {tail4 or 'unknown'}"
 
         if not sort_ok:
             return str(src), False, f"sort failed: {last_err}", ""

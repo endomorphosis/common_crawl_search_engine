@@ -1977,11 +1977,17 @@ class PipelineOrchestrator:
             # validate_and_mark_sorted prints lines like:
             #   ❌ Error sorting cdx-00021.gz.sorted.parquet: <msg>
             #   ❌ Error rewriting cdx-00021.gz.sorted.parquet: <msg>
-            rx = re.compile(r"^❌ Error (?:sorting|rewriting) (?P<fname>[^:]+):")
+            # It can also print progress lines for per-file failures like:
+            #   ❌ [1/1] cdx-00052.gz.parquet: exception A process in the process pool was terminated abruptly...
+            rx = re.compile(
+                r"^(?:❌ Error (?:sorting|rewriting) (?P<fname1>[^:]+):|❌ \[[0-9]+/[0-9]+\] (?P<fname2>[^:]+):)"
+            )
             for line in failure_output_tail[-250:]:
                 m = rx.match(str(line).strip())
                 if m:
-                    failing_files.append(m.group("fname").strip())
+                    fname = (m.group("fname1") or m.group("fname2") or "").strip()
+                    if fname:
+                        failing_files.append(fname)
 
         failing_stems: Set[str] = set()
         for fname in failing_files:

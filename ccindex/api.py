@@ -28,7 +28,19 @@ import urllib.request
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
+
+# Import HuggingFace datasets adapter (optional)
+try:
+    from common_crawl_search_engine.ccindex.hf_datasets_adapter import (
+        HFRowGroupReader,
+        hf_datasets_available,
+        get_hf_parquet_rowgroup,
+        resolve_parquet_path_with_hf_fallback,
+    )
+    _HF_AVAILABLE = True
+except ImportError:
+    _HF_AVAILABLE = False
 
 
 # Process-level memo: whether per-collection DBs tend to include a URL-level `cc_pointers`
@@ -1764,13 +1776,24 @@ def resolve_urls_to_ccindex(
                 matched_rows = 0
                 pf_cache: Dict[str, object] = {}
 
+                # HuggingFace reader for fallback when local files don't exist
+                hf_reader: Optional[HFRowGroupReader] = None
+                hf_files: Set[str] = set()  # Track which files are from HuggingFace
+                if _HF_AVAILABLE and os.environ.get("HF_ENABLE_FALLBACK", "true").lower() not in ("false", "0", "no"):
+                    try:
+                        hf_reader = HFRowGroupReader()
+                    except Exception:
+                        hf_reader = None
+
                 # Group segments by parquet file and row_group to avoid repeated reads.
                 file_groups: "Dict[str, Dict[int, List[Tuple[int, int]]]]" = {}
+                hf_file_groups: "Dict[str, Dict[int, List[Tuple[int, int]]]]" = {}  # HuggingFace file groups
 
                 for source_path_raw, parquet_rel_raw, row_group, dom_rg_start, dom_rg_end in seg_rows:
                     pq_path: Optional[Path] = None
                     sp = str(source_path_raw or "").strip()
                     rel = str(parquet_rel_raw or "").strip()
+                    use_hf = False
 
                     if sp:
                         try:
@@ -1787,15 +1810,34 @@ def resolve_urls_to_ccindex(
                                 pq_path = cand
                         except Exception:
                             pq_path = None
-                        try:
-                            rg = int(row_group)
-                            s0 = int(dom_rg_start)
-                            s1 = int(dom_rg_end)
-                        except Exception:
-                            continue
-                        if s1 <= s0:
-                            continue
 
+                    # If local file doesn't exist and HuggingFace is available, check HF
+                    if pq_path is None and rel and hf_reader is not None:
+                        parquet_filename = Path(rel).name
+                        # Verify file exists in HuggingFace dataset
+                        if parquet_filename in hf_reader.list_available_parquet_files(str(coll)):
+                            use_hf = True
+
+                    try:
+                        rg = int(row_group)
+                        s0 = int(dom_rg_start)
+                        s1 = int(dom_rg_end)
+                    except Exception:
+                        continue
+                    if s1 <= s0:
+                        continue
+
+                    if use_hf:
+                        # Use HuggingFace path
+                        ps = f"hf://{coll}/{rel}"
+                        hf_files.add(ps)
+                        group = hf_file_groups.get(ps)
+                        if group is None:
+                            group = {}
+                            hf_file_groups[ps] = group
+                        group.setdefault(int(rg), []).append((int(s0), int(s1)))
+                    else:
+                        # Use local path
                         ps = str(pq_path)
                         group = file_groups.get(ps)
                         if group is None:
@@ -1803,37 +1845,183 @@ def resolve_urls_to_ccindex(
                             file_groups[ps] = group
                         group.setdefault(int(rg), []).append((int(s0), int(s1)))
 
-                    def _coalesce_ranges(ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-                        if not ranges:
-                            return []
-                        ranges = sorted(ranges, key=lambda r: (int(r[0]), int(r[1])))
-                        merged: List[Tuple[int, int]] = []
-                        cur_start, cur_end = ranges[0]
-                        for s0, s1 in ranges[1:]:
-                            if int(s0) <= int(cur_end):
-                                cur_end = max(int(cur_end), int(s1))
-                            else:
-                                merged.append((int(cur_start), int(cur_end)))
-                                cur_start, cur_end = int(s0), int(s1)
-                        merged.append((int(cur_start), int(cur_end)))
-                        return merged
+                def _coalesce_ranges(ranges: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+                    if not ranges:
+                        return []
+                    ranges = sorted(ranges, key=lambda r: (int(r[0]), int(r[1])))
+                    merged: List[Tuple[int, int]] = []
+                    cur_start, cur_end = ranges[0]
+                    for s0, s1 in ranges[1:]:
+                        if int(s0) <= int(cur_end):
+                            cur_end = max(int(cur_end), int(s1))
+                        else:
+                            merged.append((int(cur_start), int(cur_end)))
+                            cur_start, cur_end = int(s0), int(s1)
+                    merged.append((int(cur_start), int(cur_end)))
+                    return merged
 
-                    for ps, rg_map in file_groups.items():
-                        pf = pf_cache.get(ps)
-                        if pf is None:
+                def _process_rowgroup_data(
+                    t_rg: "pa.Table",
+                    ranges: List[Tuple[int, int]],
+                    avail: Set[str],
+                    pq_path: Path,
+                    is_hf: bool = False,
+                ) -> None:
+                    """Process rowgroup data and extract matching URLs."""
+                    nonlocal matched_rows, local_rows_returned
+
+                    for s0, s1 in ranges:
+                        if s1 <= s0:
+                            continue
+                        try:
+                            t_slice = t_rg.slice(int(s0), int(s1) - int(s0))
+                        except Exception:
+                            continue
+
+                        try:
+                            url_col = t_slice.column(t_slice.schema.get_field_index("url"))
+                            mask = pc.is_in(url_col, value_set=variant_arr)
+                            t_hit = t_slice.filter(mask)
+                        except Exception:
+                            continue
+
+                        if t_hit.num_rows <= 0:
+                            continue
+                        matched_rows += int(t_hit.num_rows)
+
+                        try:
+                            hit_urls = t_hit.column(t_hit.schema.get_field_index("url")).to_pylist()
+                        except Exception:
+                            continue
+
+                        try:
+                            name = pq_path.name
+                            suf = ".sorted.parquet"
+                            shard_file = name[: -len(suf)] if name.endswith(suf) else name
+                            shard_file = shard_file or None
+                        except Exception:
+                            shard_file = None
+
+                        def _col_pylist(colname: str) -> Optional[List[object]]:
+                            if colname not in avail or colname not in {f.name for f in t_hit.schema}:
+                                return None
                             try:
-                                pf = pq.ParquetFile(ps)
+                                return t_hit.column(t_hit.schema.get_field_index(colname)).to_pylist()
                             except Exception:
+                                return None
+
+                        ts_list = _col_pylist("ts")
+                        status_list = _col_pylist("status")
+                        mime_list = _col_pylist("mime")
+                        digest_list = _col_pylist("digest")
+                        warc_fn_list = _col_pylist("warc_filename")
+                        warc_off_list = _col_pylist("warc_offset")
+                        warc_len_list = _col_pylist("warc_length")
+
+                        for j, hit_url in enumerate(hit_urls):
+                            if not hit_url:
                                 continue
-                            pf_cache[ps] = pf
-                            opened_files += 1
-                            local_parquet_files_scanned += 1
+                            requested_list = variant_to_requested.get(str(hit_url))
+                            if not requested_list:
+                                continue
 
-                            if not counted_collection:
-                                local_collections_scanned += 1
-                                counted_collection = True
+                            rec = {
+                                "collection": str(coll),
+                                "shard_file": shard_file,
+                                "url": str(hit_url),
+                                "timestamp": (ts_list[j] if ts_list is not None and j < len(ts_list) else None),
+                                "status": (
+                                    int(status_list[j])
+                                    if status_list is not None and j < len(status_list) and status_list[j] is not None
+                                    else None
+                                ),
+                                "mime": (mime_list[j] if mime_list is not None and j < len(mime_list) else None),
+                                "digest": (digest_list[j] if digest_list is not None and j < len(digest_list) else None),
+                                "warc_filename": (
+                                    warc_fn_list[j] if warc_fn_list is not None and j < len(warc_fn_list) else None
+                                ),
+                                "warc_offset": (
+                                    int(warc_off_list[j])
+                                    if warc_off_list is not None and j < len(warc_off_list) and warc_off_list[j] is not None
+                                    else None
+                                ),
+                                "warc_length": (
+                                    int(warc_len_list[j])
+                                    if warc_len_list is not None and j < len(warc_len_list) and warc_len_list[j] is not None
+                                    else None
+                                ),
+                                "parquet_path": str(pq_path),
+                                "source": "huggingface" if is_hf else "local",
+                            }
 
-                        avail = set(_parquet_schema_columns_cached(ps))
+                            for requested_url in requested_list:
+                                bucket = local_matches.setdefault(requested_url, [])
+                                if len(bucket) >= int(per_url_limit):
+                                    continue
+                                bucket.append(rec)
+                                local_rows_returned += 1
+
+                # Process local parquet files
+                for ps, rg_map in file_groups.items():
+                    pf = pf_cache.get(ps)
+                    if pf is None:
+                        try:
+                            pf = pq.ParquetFile(ps)
+                        except Exception:
+                            continue
+                        pf_cache[ps] = pf
+                        opened_files += 1
+                        local_parquet_files_scanned += 1
+
+                        if not counted_collection:
+                            local_collections_scanned += 1
+                            counted_collection = True
+
+                    avail = set(_parquet_schema_columns_cached(ps))
+                    cols_to_read = [c for c in want_cols if c in avail]
+                    if "url" not in cols_to_read:
+                        continue
+
+                    try:
+                        pq_path = Path(ps)
+                    except Exception:
+                        pq_path = Path(ps)
+
+                    for rg, ranges in rg_map.items():
+                        ranges = _coalesce_ranges(ranges)
+                        try:
+                            t_rg = pf.read_row_group(int(rg), columns=cols_to_read)
+                            rowgroups_read += 1
+                        except Exception:
+                            continue
+
+                        _process_rowgroup_data(t_rg, ranges, avail, pq_path, is_hf=False)
+
+                # Process HuggingFace parquet files
+                if hf_reader is not None:
+                    for ps, rg_map in hf_file_groups.items():
+                        # Parse HF path: hf://collection/rel_path
+                        parts = ps.replace("hf://", "").split("/", 1)
+                        if len(parts) != 2:
+                            continue
+                        hf_collection, hf_rel = parts
+                        parquet_filename = Path(hf_rel).name
+
+                        # Get parquet file from HuggingFace
+                        pf = hf_reader._get_parquet_file_from_dataset(hf_collection, parquet_filename)
+                        if pf is None:
+                            continue
+
+                        # Cache the parquet file handle
+                        pf_cache[ps] = pf
+                        opened_files += 1
+                        local_parquet_files_scanned += 1
+
+                        if not counted_collection:
+                            local_collections_scanned += 1
+                            counted_collection = True
+
+                        avail = set(str(n) for n in pf.schema.names)
                         cols_to_read = [c for c in want_cols if c in avail]
                         if "url" not in cols_to_read:
                             continue
@@ -1846,101 +2034,14 @@ def resolve_urls_to_ccindex(
                         for rg, ranges in rg_map.items():
                             ranges = _coalesce_ranges(ranges)
                             try:
-                                t_rg = pf.read_row_group(int(rg), columns=cols_to_read)
+                                t_rg = hf_reader.read_rowgroup(hf_collection, parquet_filename, int(rg), columns=cols_to_read)
+                                if t_rg is None:
+                                    continue
                                 rowgroups_read += 1
                             except Exception:
                                 continue
 
-                            for s0, s1 in ranges:
-                                if s1 <= s0:
-                                    continue
-                                try:
-                                    t_slice = t_rg.slice(int(s0), int(s1) - int(s0))
-                                except Exception:
-                                    continue
-
-                                try:
-                                    url_col = t_slice.column(t_slice.schema.get_field_index("url"))
-                                    mask = pc.is_in(url_col, value_set=variant_arr)
-                                    t_hit = t_slice.filter(mask)
-                                except Exception:
-                                    continue
-
-                                if t_hit.num_rows <= 0:
-                                    continue
-                                matched_rows += int(t_hit.num_rows)
-
-                                try:
-                                    hit_urls = t_hit.column(t_hit.schema.get_field_index("url")).to_pylist()
-                                except Exception:
-                                    continue
-
-                                try:
-                                    name = pq_path.name
-                                    suf = ".sorted.parquet"
-                                    shard_file = name[: -len(suf)] if name.endswith(suf) else name
-                                    shard_file = shard_file or None
-                                except Exception:
-                                    shard_file = None
-
-                                def _col_pylist(colname: str) -> Optional[List[object]]:
-                                    if colname not in avail or colname not in {f.name for f in t_hit.schema}:
-                                        return None
-                                    try:
-                                        return t_hit.column(t_hit.schema.get_field_index(colname)).to_pylist()
-                                    except Exception:
-                                        return None
-
-                                ts_list = _col_pylist("ts")
-                                status_list = _col_pylist("status")
-                                mime_list = _col_pylist("mime")
-                                digest_list = _col_pylist("digest")
-                                warc_fn_list = _col_pylist("warc_filename")
-                                warc_off_list = _col_pylist("warc_offset")
-                                warc_len_list = _col_pylist("warc_length")
-
-                                for j, hit_url in enumerate(hit_urls):
-                                    if not hit_url:
-                                        continue
-                                    requested_list = variant_to_requested.get(str(hit_url))
-                                    if not requested_list:
-                                        continue
-
-                                    rec = {
-                                        "collection": str(coll),
-                                        "shard_file": shard_file,
-                                        "url": str(hit_url),
-                                        "timestamp": (ts_list[j] if ts_list is not None and j < len(ts_list) else None),
-                                        "status": (
-                                            int(status_list[j])
-                                            if status_list is not None and j < len(status_list) and status_list[j] is not None
-                                            else None
-                                        ),
-                                        "mime": (mime_list[j] if mime_list is not None and j < len(mime_list) else None),
-                                        "digest": (digest_list[j] if digest_list is not None and j < len(digest_list) else None),
-                                        "warc_filename": (
-                                            warc_fn_list[j] if warc_fn_list is not None and j < len(warc_fn_list) else None
-                                        ),
-                                        "warc_offset": (
-                                            int(warc_off_list[j])
-                                            if warc_off_list is not None and j < len(warc_off_list) and warc_off_list[j] is not None
-                                            else None
-                                        ),
-                                        "warc_length": (
-                                            int(warc_len_list[j])
-                                            if warc_len_list is not None and j < len(warc_len_list) and warc_len_list[j] is not None
-                                            else None
-                                        ),
-                                        "parquet_path": str(pq_path),
-                                    }
-
-                                    for requested_url in requested_list:
-                                        bucket = local_matches.setdefault(requested_url, [])
-                                        if len(bucket) >= int(per_url_limit):
-                                            continue
-                                        bucket.append(rec)
-                                        local_rows_returned += 1
-                            local_rows_returned += 1
+                            _process_rowgroup_data(t_rg, ranges, avail, pq_path, is_hf=True)
 
                 _emit(
                     {

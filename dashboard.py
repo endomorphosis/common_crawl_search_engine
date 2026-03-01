@@ -1427,11 +1427,13 @@ def create_app(master_db: Path) -> Any:
 
       const elapsed = (typeof res.elapsed_s === 'number') ? res.elapsed_s.toFixed(2) : String(res.elapsed_s ?? '');
       const returned = (res.records || []).length;
+      const mode = (String(res.meta_source || '').startsWith('hf-remote:') || hfRemoteMeta) ? 'hf-remote' : 'local';
       const cappedNote = (returned >= maxMatches)
         ? " <span class='small'>(hit limit; increase Max matches for more)</span>"
         : "";
       statusEl.innerHTML = `
         <span class='badge ok'>ok</span>
+        mode=<span class='code'>${{esc(mode)}}</span>
         meta_source=<span class='code'>${{esc(res.meta_source)}}</span>
         collections=<span class='code'>${{esc(res.collections_considered)}}</span>
         returned=<span class='code'>${{esc(returned)}}</span>

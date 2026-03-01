@@ -79,6 +79,22 @@ def test_ccindex_mcp_help():
     assert "mcp" in result.stdout.lower()
 
 
+def test_ccindex_search_meta_help_includes_hf_remote_flags():
+    """Test that `ccindex search meta --help` includes HF remote meta-index flags."""
+    result = subprocess.run(
+        [sys.executable, "-m", "common_crawl_search_engine.cli", "search", "meta", "--help"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0
+    out = result.stdout
+    assert "--hf-remote-meta" in out
+    assert "--hf-meta-index-dataset" in out
+    assert "--hf-pointer-dataset" in out
+    assert "--hf-revision" in out
+
+
 def test_ccindex_brave_cache_stats_and_clear(tmp_path: Path):
     env = dict(**os.environ)
     env["BRAVE_SEARCH_CACHE_PATH"] = str(tmp_path / "brave_cache.json")

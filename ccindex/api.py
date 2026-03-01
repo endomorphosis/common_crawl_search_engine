@@ -33,6 +33,7 @@ from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Un
 # Import HuggingFace datasets adapter (optional)
 try:
     from common_crawl_search_engine.ccindex.hf_datasets_adapter import (
+        HFMetaIndexSQLReader,
         HFRowGroupReader,
         hf_datasets_available,
         get_hf_parquet_rowgroup,
@@ -1175,6 +1176,10 @@ def iter_domain_records_via_meta_indexes(
     max_parquet_files: int = 200,
     max_matches: int = 200,
     per_parquet_limit: int = 2000,
+    hf_remote_meta: Optional[bool] = None,
+    hf_meta_index_dataset: Optional[str] = None,
+    hf_pointer_dataset: Optional[str] = None,
+    hf_revision: Optional[str] = None,
     stats_out: Optional[Dict[str, object]] = None,
 ) -> Iterator[Dict[str, object]]:
     """Stream candidate CCIndex pointer records for a domain.
@@ -1193,12 +1198,41 @@ def iter_domain_records_via_meta_indexes(
     if not host_rev_prefix:
         raise ValueError("Could not compute host_rev")
 
+    def _env_true(name: str, default: bool = False) -> bool:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    remote_meta_enabled = bool(hf_remote_meta) if hf_remote_meta is not None else _env_true("HF_META_REMOTE", False)
+
     parquet_root = Path(parquet_root).expanduser().resolve()
-    if not parquet_root.exists():
+    if not remote_meta_enabled and not parquet_root.exists():
         raise FileNotFoundError(f"Parquet root does not exist: {parquet_root}")
 
     # 1) Discover collections via meta-index layer.
-    if collection_db is not None:
+    hf_sql_reader = None
+    if remote_meta_enabled:
+        if not _HF_AVAILABLE:
+            raise RuntimeError("HF remote meta-index mode requested but HuggingFace adapter is unavailable")
+        hf_sql_reader = HFMetaIndexSQLReader(
+            index_dataset_name=hf_meta_index_dataset,
+            pointers_dataset_name=hf_pointer_dataset,
+            revision=hf_revision,
+        )
+        coll_rows = hf_sql_reader.list_collections(year=year)
+        collections = [
+            CollectionRef(
+                year=y,
+                collection=coll,
+                collection_db_path=Path("__hf_remote__"),
+            )
+            for y, coll in coll_rows
+        ]
+        meta_source = (
+            f"hf-remote:{hf_sql_reader.index_dataset_name}@{hf_sql_reader.revision}"
+        )
+    elif collection_db is not None:
         coll_db = Path(collection_db).expanduser().resolve()
         collection_name = coll_db.stem.replace("cc_pointers_", "")
         collections = [
@@ -1244,28 +1278,22 @@ def iter_domain_records_via_meta_indexes(
         if max_matches_cap is not None and emitted >= max_matches_cap:
             break
 
-        collection_db_path = cref.collection_db_path
-        if not collection_db_path.exists():
-            continue
-
-        parquet_relpaths = parquet_relpaths_for_domain(collection_db_path, host_rev_prefix)
+        if remote_meta_enabled:
+            parquet_relpaths = hf_sql_reader.parquet_relpaths_for_domain(cref.collection, host_rev_prefix)
+        else:
+            collection_db_path = cref.collection_db_path
+            if not collection_db_path.exists():
+                continue
+            parquet_relpaths = parquet_relpaths_for_domain(collection_db_path, host_rev_prefix)
         if not parquet_relpaths:
             continue
 
         if max_parquet_files_cap is not None:
             parquet_relpaths = parquet_relpaths[: max(0, max_parquet_files_cap)]
 
-        parquet_dir = get_collection_parquet_dir(parquet_root, cref.collection)
-        if not parquet_dir.exists():
-            continue
-
         for rel in parquet_relpaths:
             if max_matches_cap is not None and emitted >= max_matches_cap:
                 break
-
-            parquet_path = (parquet_dir / rel).resolve()
-            if not parquet_path.exists():
-                continue
 
             remaining: Optional[int]
             if max_matches_cap is None:
@@ -1282,7 +1310,27 @@ def iter_domain_records_via_meta_indexes(
             else:
                 per_file_limit = min(per_parquet_limit_cap or 0, remaining or 0)
 
-            for rec in iter_warc_candidates_from_parquet(parquet_path, host_rev_prefix, limit=int(per_file_limit)):
+            if remote_meta_enabled:
+                candidate_iter = hf_sql_reader.iter_warc_candidates(
+                    cref.collection,
+                    rel,
+                    host_rev_prefix,
+                    limit=int(per_file_limit),
+                )
+            else:
+                parquet_dir = get_collection_parquet_dir(parquet_root, cref.collection)
+                if not parquet_dir.exists():
+                    continue
+                parquet_path = (parquet_dir / rel).resolve()
+                if not parquet_path.exists():
+                    continue
+                candidate_iter = iter_warc_candidates_from_parquet(
+                    parquet_path,
+                    host_rev_prefix,
+                    limit=int(per_file_limit),
+                )
+
+            for rec in candidate_iter:
                 yield rec
                 emitted += 1
                 if max_matches_cap is not None and emitted >= max_matches_cap:
@@ -1300,6 +1348,10 @@ def search_domain_via_meta_indexes(
     max_parquet_files: int = 200,
     max_matches: int = 200,
     per_parquet_limit: int = 2000,
+    hf_remote_meta: Optional[bool] = None,
+    hf_meta_index_dataset: Optional[str] = None,
+    hf_pointer_dataset: Optional[str] = None,
+    hf_revision: Optional[str] = None,
 ) -> MetaIndexSearchResult:
     """Search using master/year meta-indexes to find candidate WARC pointers.
 
@@ -1320,6 +1372,10 @@ def search_domain_via_meta_indexes(
         max_parquet_files=max_parquet_files,
         max_matches=max_matches,
         per_parquet_limit=per_parquet_limit,
+        hf_remote_meta=hf_remote_meta,
+        hf_meta_index_dataset=hf_meta_index_dataset,
+        hf_pointer_dataset=hf_pointer_dataset,
+        hf_revision=hf_revision,
         stats_out=stats,
     ):
         records.append(rec)

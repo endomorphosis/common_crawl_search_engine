@@ -9,6 +9,7 @@ The integration provides:
 1. **Automatic Fallback**: When local parquet files don't exist, the system automatically attempts to fetch data from HuggingFace datasets
 2. **Rowgroup-level Access**: Efficiently reads specific rowgroups from parquet files stored in HuggingFace datasets
 3. **Transparent Integration**: Works seamlessly with existing search APIs without requiring code changes
+4. **Remote Meta-Index SQL**: Query meta-indexes and pointer shards directly over HTTPS with DuckDB (no full dataset download)
 
 ## Dataset
 
@@ -29,6 +30,12 @@ The default dataset is:
 | `HF_CACHE_DIR` | Cache directory for downloaded data | `~/.cache/huggingface/datasets` |
 | `HF_ENABLE_FALLBACK` | Enable HuggingFace fallback when local files missing | `true` |
 | `HF_ENABLE_REMOTE` | Enable remote HuggingFace access | `true` |
+| `HF_META_REMOTE` | Use HF-hosted meta-indexes instead of local master/year/collection DBs | `false` |
+| `HF_META_INDEX_DATASET_NAME` | HF dataset containing meta-index parquet files | `Publicus/common_crawl_pointer_indices` |
+| `HF_POINTER_DATASET_NAME` | HF dataset containing pointer shard parquet files | `Publicus/common_crawl_pointers_by_collection` |
+| `HF_META_DATASET_REVISION` | Revision for meta-index and pointer datasets | `main` |
+| `HF_REMOTE_SQL_RETRIES` | Retries for transient 429/5xx remote SQL failures | `3` |
+| `HF_REMOTE_SQL_RETRY_BASE_S` | Base exponential backoff seconds for remote SQL retries | `0.5` |
 
 ### Installation
 
@@ -80,6 +87,78 @@ table = get_hf_parquet_rowgroup(
     row_group=0,
     columns=["url", "timestamp", "status"],
 )
+```
+
+### Remote Meta-Index Mode (No Local Index Files)
+
+Use HF-hosted meta-indexes and pointer shards directly:
+
+```bash
+export HF_META_REMOTE=1
+export HF_META_INDEX_DATASET_NAME=Publicus/common_crawl_pointer_indices
+export HF_POINTER_DATASET_NAME=Publicus/common_crawl_pointers_by_collection
+export HF_META_DATASET_REVISION=main
+```
+
+Then call the same API:
+
+```python
+from common_crawl_search_engine.ccindex.api import search_domain_via_meta_indexes
+
+res = search_domain_via_meta_indexes(
+        "example.com",
+        hf_remote_meta=True,
+)
+
+print(res.meta_source)
+print(len(res.records))
+```
+
+CLI equivalent:
+
+```bash
+python -m common_crawl_search_engine.cli search meta \
+    --domain 18f.gov \
+    --hf-remote-meta \
+    --hf-meta-index-dataset Publicus/common_crawl_pointer_indices \
+    --hf-pointer-dataset Publicus/common_crawl_pointers_by_collection \
+    --hf-revision main \
+    --max-matches 50 \
+    --stats
+```
+
+Dashboard equivalent:
+- Open `/` and enable `HF remote meta`, then optionally set dataset/revision fields.
+- Those settings are preserved when navigating to `/record` links and when following redirects.
+
+In this mode the query path is:
+
+```
+HF cc_master_index.collection_summary.parquet
+    -> HF <year>/<collection>/*.cc_domain_shards.parquet
+    -> HF pointers-by-collection parquet shards
+```
+
+No local `cc_master_index.duckdb` or local parquet shard directories are required.
+
+### Direct DuckDB SQL Against HuggingFace Files
+
+You can query HuggingFace parquet files directly with DuckDB:
+
+```sql
+SELECT year, collection
+FROM read_parquet(
+    'https://huggingface.co/datasets/Publicus/common_crawl_pointer_indices/resolve/main/cc_master_index.collection_summary.parquet'
+)
+ORDER BY year, collection;
+```
+
+```sql
+SELECT parquet_relpath
+FROM read_parquet(
+    'https://huggingface.co/datasets/Publicus/common_crawl_pointer_indices/resolve/main/2024/CC-MAIN-2024-51/CC-MAIN-2024-51.cc_domain_shards.parquet'
+)
+WHERE host_rev = 'gov,18f' OR host_rev LIKE 'gov,18f,%';
 ```
 
 ### Checking Availability

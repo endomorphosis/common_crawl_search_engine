@@ -430,6 +430,10 @@ def create_app(master_db: Path) -> Any:
               "parquet_root": {"type": "string"},
               "master_db": {"type": "string"},
               "max_matches": {"type": "integer"},
+              "hf_remote_meta": {"type": ["boolean", "null"]},
+              "hf_meta_index_dataset": {"type": ["string", "null"]},
+              "hf_pointer_dataset": {"type": ["string", "null"]},
+              "hf_revision": {"type": ["string", "null"]},
             },
             "required": ["domain"],
           },
@@ -657,6 +661,10 @@ def create_app(master_db: Path) -> Any:
           parquet_root = Path(str(tool_args.get("parquet_root") or "/storage/ccindex_parquet"))
           master_db_arg = Path(str(tool_args.get("master_db") or str(master_db)))
           max_matches = int(tool_args.get("max_matches") or 200)
+          hf_remote_meta = tool_args.get("hf_remote_meta")
+          hf_meta_index_dataset = tool_args.get("hf_meta_index_dataset")
+          hf_pointer_dataset = tool_args.get("hf_pointer_dataset")
+          hf_revision = tool_args.get("hf_revision")
 
           res = api.search_domain_via_meta_indexes(
             q,
@@ -664,6 +672,10 @@ def create_app(master_db: Path) -> Any:
             master_db=master_db_arg,
             year=str(year) if year else None,
             max_matches=max_matches,
+            hf_remote_meta=(bool(hf_remote_meta) if hf_remote_meta is not None else None),
+            hf_meta_index_dataset=(str(hf_meta_index_dataset) if hf_meta_index_dataset else None),
+            hf_pointer_dataset=(str(hf_pointer_dataset) if hf_pointer_dataset else None),
+            hf_revision=(str(hf_revision) if hf_revision else None),
           )
           return {
             "meta_source": res.meta_source,
@@ -1028,6 +1040,10 @@ def create_app(master_db: Path) -> Any:
         year: str = Query(default="", description="optional year"),
         max_matches: int = Query(default=500, ge=1, le=5000),
         parquet_root: str = Query(default="/storage/ccindex_parquet"),
+      hf_remote_meta: int = Query(default=0, ge=0, le=1),
+      hf_meta_index_dataset: str = Query(default=""),
+      hf_pointer_dataset: str = Query(default=""),
+      hf_revision: str = Query(default=""),
         embed: int = Query(default=0, ge=0, le=1),
     ) -> str:
         base_path = _base_path(request)
@@ -1073,6 +1089,25 @@ def create_app(master_db: Path) -> Any:
       <input id='parquet_root' name='parquet_root' value='{html.escape(_q(parquet_root))}'>
     </div>
     <div class='field'>
+      <label>HF remote meta</label>
+      <label style='display:flex; align-items:center; gap:8px; margin-top:8px;'>
+        <input id='hf_remote_meta' name='hf_remote_meta' type='checkbox' value='1' {'checked' if int(hf_remote_meta) else ''}>
+        <span class='small'>query HF indexes via DuckDB HTTP</span>
+      </label>
+    </div>
+    <div class='field' style='min-width: 320px; flex: 1;'>
+      <label>HF meta-index dataset (optional)</label>
+      <input id='hf_meta_index_dataset' name='hf_meta_index_dataset' value='{html.escape(_q(hf_meta_index_dataset))}' placeholder='Publicus/common_crawl_pointer_indices'>
+    </div>
+    <div class='field' style='min-width: 340px; flex: 1;'>
+      <label>HF pointer dataset (optional)</label>
+      <input id='hf_pointer_dataset' name='hf_pointer_dataset' value='{html.escape(_q(hf_pointer_dataset))}' placeholder='Publicus/common_crawl_pointers_by_collection'>
+    </div>
+    <div class='field' style='min-width: 200px;'>
+      <label>HF revision (optional)</label>
+      <input id='hf_revision' name='hf_revision' value='{html.escape(_q(hf_revision))}' placeholder='main'>
+    </div>
+    <div class='field'>
       <button type='submit'>Search</button>
     </div>
   </div>
@@ -1084,7 +1119,16 @@ def create_app(master_db: Path) -> Any:
 </div>
 """
 
-        initial = {"q": q, "year": year, "max_matches": int(max_matches), "parquet_root": parquet_root}
+        initial = {
+          "q": q,
+          "year": year,
+          "max_matches": int(max_matches),
+          "parquet_root": parquet_root,
+          "hf_remote_meta": int(hf_remote_meta),
+          "hf_meta_index_dataset": hf_meta_index_dataset,
+          "hf_pointer_dataset": hf_pointer_dataset,
+          "hf_revision": hf_revision,
+        }
         body = "\n".join(
             [
                 "<form method='get' id='searchForm'>",
@@ -1106,6 +1150,10 @@ def create_app(master_db: Path) -> Any:
   const yearEl = document.getElementById('year');
   const statusFilterEl = document.getElementById('status_filter');
   const mimeFilterEl = document.getElementById('mime_filter');
+  const hfRemoteMetaEl = document.getElementById('hf_remote_meta');
+  const hfMetaDatasetEl = document.getElementById('hf_meta_index_dataset');
+  const hfPointerDatasetEl = document.getElementById('hf_pointer_dataset');
+  const hfRevisionEl = document.getElementById('hf_revision');
 
   let lastRecords = [];
   let baseStatusHtml = "";
@@ -1133,7 +1181,11 @@ def create_app(master_db: Path) -> Any:
       const warc = esc(r.warc_filename || '');
       const off = esc(r.warc_offset ?? '');
       const len = esc(r.warc_length ?? '');
-      const recHref = `${{basePath}}/record?warc_filename=${{encodeURIComponent(r.warc_filename||'')}}&warc_offset=${{encodeURIComponent(r.warc_offset||'')}}&warc_length=${{encodeURIComponent(r.warc_length||'')}}&parquet_root=${{encodeURIComponent(document.getElementById('parquet_root').value || '')}}`;
+      const hfRemoteMeta = hfRemoteMetaEl && hfRemoteMetaEl.checked ? '1' : '0';
+      const hfMetaDs = (hfMetaDatasetEl && hfMetaDatasetEl.value) ? String(hfMetaDatasetEl.value) : '';
+      const hfPointerDs = (hfPointerDatasetEl && hfPointerDatasetEl.value) ? String(hfPointerDatasetEl.value) : '';
+      const hfRevision = (hfRevisionEl && hfRevisionEl.value) ? String(hfRevisionEl.value) : '';
+      const recHref = `${{basePath}}/record?warc_filename=${{encodeURIComponent(r.warc_filename||'')}}&warc_offset=${{encodeURIComponent(r.warc_offset||'')}}&warc_length=${{encodeURIComponent(r.warc_length||'')}}&parquet_root=${{encodeURIComponent(document.getElementById('parquet_root').value || '')}}&hf_remote_meta=${{encodeURIComponent(hfRemoteMeta)}}&hf_meta_index_dataset=${{encodeURIComponent(hfMetaDs)}}&hf_pointer_dataset=${{encodeURIComponent(hfPointerDs)}}&hf_revision=${{encodeURIComponent(hfRevision)}}`;
       return `
         <tr>
           <td class='small'>${{start + idx + 1}}</td>
@@ -1347,6 +1399,10 @@ def create_app(master_db: Path) -> Any:
     const year = yearEl.value;
     const maxMatches = parseInt(document.getElementById('max_matches').value || '200', 10);
     const parquetRoot = document.getElementById('parquet_root').value;
+    const hfRemoteMeta = !!(hfRemoteMetaEl && hfRemoteMetaEl.checked);
+    const hfMetaDataset = (hfMetaDatasetEl && hfMetaDatasetEl.value) ? String(hfMetaDatasetEl.value).trim() : '';
+    const hfPointerDataset = (hfPointerDatasetEl && hfPointerDatasetEl.value) ? String(hfPointerDatasetEl.value).trim() : '';
+    const hfRevision = (hfRevisionEl && hfRevisionEl.value) ? String(hfRevisionEl.value).trim() : '';
 
     if (!q.trim()) {{
       statusEl.innerHTML = "<div class='small'>Enter a domain and search.</div>";
@@ -1363,6 +1419,10 @@ def create_app(master_db: Path) -> Any:
         year: year.trim() || null,
         max_matches: maxMatches,
         parquet_root: parquetRoot,
+        hf_remote_meta: hfRemoteMeta,
+        hf_meta_index_dataset: hfMetaDataset || null,
+        hf_pointer_dataset: hfPointerDataset || null,
+        hf_revision: hfRevision || null,
       }});
 
       const elapsed = (typeof res.elapsed_s === 'number') ? res.elapsed_s.toFixed(2) : String(res.elapsed_s ?? '');
@@ -2794,6 +2854,10 @@ def create_app(master_db: Path) -> Any:
         warc_length: int,
         prefix: str = "https://data.commoncrawl.org/",
         parquet_root: str = "/storage/ccindex_parquet",
+      hf_remote_meta: int = 0,
+      hf_meta_index_dataset: str = "",
+      hf_pointer_dataset: str = "",
+      hf_revision: str = "",
     ) -> str:
         base_path = _base_path(request)
         s = _load_settings()
@@ -2859,6 +2923,10 @@ def create_app(master_db: Path) -> Any:
 
   const pointer = {json.dumps(pointer)};
   const parquetRoot = {json.dumps(str(parquet_root))};
+  const hfRemoteMeta = {"true" if int(hf_remote_meta) else "false"};
+  const hfMetaIndexDataset = {json.dumps(str(hf_meta_index_dataset or ""))};
+  const hfPointerDataset = {json.dumps(str(hf_pointer_dataset or ""))};
+  const hfRevision = {json.dumps(str(hf_revision or ""))};
   const statusEl = document.getElementById('recStatus');
   const bodyEl = document.getElementById('recBody');
   const previewEl = document.getElementById('recPreview');
@@ -2942,7 +3010,7 @@ def create_app(master_db: Path) -> Any:
 
       // If this was a redirect, offer a helper to follow it.
       if (redirectLoc) {{
-        const followHref = `${{basePath}}/?q=${{encodeURIComponent(redirectLoc)}}&parquet_root=${{encodeURIComponent(parquetRoot)}}&max_matches=25`;
+        const followHref = `${{basePath}}/?q=${{encodeURIComponent(redirectLoc)}}&parquet_root=${{encodeURIComponent(parquetRoot)}}&max_matches=25&hf_remote_meta=${{encodeURIComponent(hfRemoteMeta ? '1' : '0')}}&hf_meta_index_dataset=${{encodeURIComponent(hfMetaIndexDataset)}}&hf_pointer_dataset=${{encodeURIComponent(hfPointerDataset)}}&hf_revision=${{encodeURIComponent(hfRevision)}}`;
         statusEl.innerHTML += `<div class='small' style='margin-top:8px;'>redirect location: <a class='code' href='${{followHref}}'>${{esc(redirectLoc)}}</a> <button id='followBtn' type='button' style='margin-left:10px;'>follow in CCIndex</button></div>`;
         const btn = document.getElementById('followBtn');
         if (btn) {{
@@ -2954,10 +3022,14 @@ def create_app(master_db: Path) -> Any:
                 year: null,
                 max_matches: 25,
                 parquet_root: parquetRoot,
+                hf_remote_meta: hfRemoteMeta,
+                hf_meta_index_dataset: hfMetaIndexDataset || null,
+                hf_pointer_dataset: hfPointerDataset || null,
+                hf_revision: hfRevision || null,
               }});
               const rec = (sres.records || [])[0];
               if (!rec) throw new Error('No CCIndex records for redirect target');
-              const href = `${{basePath}}/record?warc_filename=${{encodeURIComponent(rec.warc_filename||'')}}&warc_offset=${{encodeURIComponent(rec.warc_offset||'')}}&warc_length=${{encodeURIComponent(rec.warc_length||'')}}&parquet_root=${{encodeURIComponent(parquetRoot)}}`;
+              const href = `${{basePath}}/record?warc_filename=${{encodeURIComponent(rec.warc_filename||'')}}&warc_offset=${{encodeURIComponent(rec.warc_offset||'')}}&warc_length=${{encodeURIComponent(rec.warc_length||'')}}&parquet_root=${{encodeURIComponent(parquetRoot)}}&hf_remote_meta=${{encodeURIComponent(hfRemoteMeta ? '1' : '0')}}&hf_meta_index_dataset=${{encodeURIComponent(hfMetaIndexDataset)}}&hf_pointer_dataset=${{encodeURIComponent(hfPointerDataset)}}&hf_revision=${{encodeURIComponent(hfRevision)}}`;
               window.location.href = href;
             }} catch (e) {{
               statusEl.innerHTML = `<span class='badge err'>error</span> <span class='code'>${{esc(e.message || e)}}</span>`;

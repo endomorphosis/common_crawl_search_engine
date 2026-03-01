@@ -71,6 +71,10 @@ def _cmd_search_meta(args: argparse.Namespace) -> int:
         max_parquet_files=args.max_parquet_files,
         max_matches=args.max_matches,
         per_parquet_limit=args.per_parquet_limit,
+        hf_remote_meta=args.hf_remote_meta,
+        hf_meta_index_dataset=args.hf_meta_index_dataset,
+        hf_pointer_dataset=args.hf_pointer_dataset,
+        hf_revision=args.hf_revision,
     )
 
     if args.stats:
@@ -534,6 +538,29 @@ def main(argv: list[str] | None = None) -> int:
     ap_meta.add_argument("--max-parquet-files", type=int, default=200)
     ap_meta.add_argument("--max-matches", type=int, default=200)
     ap_meta.add_argument("--per-parquet-limit", type=int, default=2000)
+    ap_meta.add_argument(
+        "--hf-remote-meta",
+        action="store_true",
+        help="Use HuggingFace-hosted meta-index and pointer parquet files via remote DuckDB SQL.",
+    )
+    ap_meta.add_argument(
+        "--hf-meta-index-dataset",
+        type=str,
+        default=None,
+        help="HuggingFace dataset for meta indexes (default: Publicus/common_crawl_pointer_indices).",
+    )
+    ap_meta.add_argument(
+        "--hf-pointer-dataset",
+        type=str,
+        default=None,
+        help="HuggingFace dataset for pointer shards (default: Publicus/common_crawl_pointers_by_collection).",
+    )
+    ap_meta.add_argument(
+        "--hf-revision",
+        type=str,
+        default=None,
+        help="HuggingFace dataset revision/tag (default: main).",
+    )
     ap_meta.add_argument("--stats", action="store_true", help="Emit stats to stderr")
     ap_meta.set_defaults(func=_cmd_search_meta)
 

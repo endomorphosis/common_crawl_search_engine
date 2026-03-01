@@ -29,11 +29,12 @@ Environment variables:
 from __future__ import annotations
 
 import os
+import time
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Set, Tuple, Union
 
 # Lazy imports for optional dependencies
 _have_datasets = False
@@ -52,6 +53,314 @@ try:
     _have_pyarrow = True
 except ImportError:
     _have_pyarrow = False
+
+
+def hf_dataset_resolve_url(dataset_name: str, relpath: str, revision: str = "main") -> str:
+    """Build a HuggingFace resolve URL for a dataset file path."""
+
+    ds = (dataset_name or "").strip("/")
+    rp = str(relpath or "").lstrip("/")
+    rev = (revision or "main").strip() or "main"
+    return f"https://huggingface.co/datasets/{ds}/resolve/{rev}/{rp}"
+
+
+def _is_transient_remote_error(msg: str) -> bool:
+    s = (msg or "").lower()
+    return any(
+        tok in s
+        for tok in [
+            " 429",
+            "too many requests",
+            " 502",
+            " 503",
+            " 504",
+            "timeout",
+            "timed out",
+            "connection reset",
+            "temporarily unavailable",
+        ]
+    )
+
+
+def _collection_year(collection: str) -> Optional[str]:
+    parts = (collection or "").split("-")
+    if len(parts) >= 3 and parts[2].isdigit():
+        return parts[2]
+    return None
+
+
+class HFMetaIndexSQLReader:
+    """DuckDB-backed reader for querying HF-hosted meta indexes via SQL.
+
+    This reader relies on DuckDB's HTTP parquet support, so callers can query
+    metadata and pointer shards directly from HuggingFace without downloading
+    full datasets.
+    """
+
+    def __init__(
+        self,
+        *,
+        index_dataset_name: Optional[str] = None,
+        pointers_dataset_name: Optional[str] = None,
+        revision: Optional[str] = None,
+        max_retries: Optional[int] = None,
+        retry_base_sleep_s: Optional[float] = None,
+    ):
+        self.index_dataset_name = (
+            index_dataset_name
+            or os.environ.get("HF_META_INDEX_DATASET_NAME")
+            or "Publicus/common_crawl_pointer_indices"
+        )
+        self.pointers_dataset_name = (
+            pointers_dataset_name
+            or os.environ.get("HF_POINTER_DATASET_NAME")
+            or os.environ.get("HF_DATASET_NAME")
+            or "Publicus/common_crawl_pointers_by_collection"
+        )
+        self.revision = (
+            revision
+            or os.environ.get("HF_META_DATASET_REVISION")
+            or os.environ.get("HF_DATASET_REVISION")
+            or "main"
+        )
+
+        try:
+            self.max_retries = int(
+                max_retries
+                if max_retries is not None
+                else (os.environ.get("HF_REMOTE_SQL_RETRIES") or 3)
+            )
+        except Exception:
+            self.max_retries = 3
+        if self.max_retries < 0:
+            self.max_retries = 0
+
+        try:
+            self.retry_base_sleep_s = float(
+                retry_base_sleep_s
+                if retry_base_sleep_s is not None
+                else (os.environ.get("HF_REMOTE_SQL_RETRY_BASE_S") or 0.5)
+            )
+        except Exception:
+            self.retry_base_sleep_s = 0.5
+        if self.retry_base_sleep_s < 0:
+            self.retry_base_sleep_s = 0.0
+
+    def _require_duckdb(self):
+        try:
+            import duckdb  # type: ignore
+
+            return duckdb
+        except Exception as e:
+            raise RuntimeError(
+                "duckdb is required for HuggingFace remote SQL queries. "
+                "Install with: pip install -e '.[ccindex]'"
+            ) from e
+
+    def _query_with_retry(self, sql: str, params: List[object]) -> List[Tuple[object, ...]]:
+        duckdb = self._require_duckdb()
+        attempt = 0
+        while True:
+            try:
+                con = duckdb.connect(database=":memory:")
+                try:
+                    con.execute("PRAGMA threads=4")
+                    return con.execute(sql, params).fetchall()
+                finally:
+                    con.close()
+            except Exception as e:
+                msg = str(e)
+                if attempt >= self.max_retries or not _is_transient_remote_error(msg):
+                    raise
+                sleep_s = self.retry_base_sleep_s * (2 ** attempt)
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
+                attempt += 1
+
+    def list_collections(self, year: Optional[str] = None) -> List[Tuple[Optional[str], str]]:
+        """Return [(year, collection), ...] from the HF master collection summary."""
+
+        url = hf_dataset_resolve_url(
+            self.index_dataset_name,
+            "cc_master_index.collection_summary.parquet",
+            self.revision,
+        )
+        if year:
+            rows = self._query_with_retry(
+                """
+                SELECT CAST(year AS VARCHAR), CAST(collection AS VARCHAR)
+                FROM read_parquet(?)
+                WHERE CAST(year AS VARCHAR) = ?
+                ORDER BY collection
+                """,
+                [url, str(year)],
+            )
+        else:
+            rows = self._query_with_retry(
+                """
+                SELECT CAST(year AS VARCHAR), CAST(collection AS VARCHAR)
+                FROM read_parquet(?)
+                ORDER BY year, collection
+                """,
+                [url],
+            )
+        out: List[Tuple[Optional[str], str]] = []
+        for y, coll in rows:
+            out.append((str(y) if y is not None else None, str(coll)))
+        return out
+
+    def _domain_shards_urls_for_collection(self, collection: str) -> List[str]:
+        y = _collection_year(collection)
+        if not y:
+            return []
+
+        relpaths = [
+            f"{y}/{collection}/{collection}.cc_domain_shards.parquet",
+            f"{y}/{collection}/{collection}__cc_domain_shards.parquet",
+            f"{y}/cc_pointers_{y}.cc_domain_shards.parquet",
+        ]
+        return [hf_dataset_resolve_url(self.index_dataset_name, rp, self.revision) for rp in relpaths]
+
+    def parquet_relpaths_for_domain(
+        self,
+        collection: str,
+        host_rev_prefix: str,
+        *,
+        include_subdomains: bool = True,
+    ) -> List[str]:
+        """Look up parquet relative paths for a domain in HF-hosted domain-shard indexes."""
+
+        like_pat = host_rev_prefix + ",%" if include_subdomains else None
+        urls = self._domain_shards_urls_for_collection(collection)
+        if not urls:
+            return []
+
+        seen: Set[str] = set()
+        out: List[str] = []
+
+        for idx, url in enumerate(urls):
+            if include_subdomains:
+                if idx <= 1:
+                    sql = """
+                        SELECT parquet_relpath
+                        FROM read_parquet(?)
+                        WHERE host_rev = ? OR host_rev LIKE ?
+                    """
+                    params: List[object] = [url, host_rev_prefix, like_pat or ""]
+                else:
+                    sql = """
+                        SELECT parquet_relpath
+                        FROM read_parquet(?)
+                        WHERE collection = ? AND (host_rev = ? OR host_rev LIKE ?)
+                    """
+                    params = [url, collection, host_rev_prefix, like_pat or ""]
+            else:
+                if idx <= 1:
+                    sql = """
+                        SELECT parquet_relpath
+                        FROM read_parquet(?)
+                        WHERE host_rev = ?
+                    """
+                    params = [url, host_rev_prefix]
+                else:
+                    sql = """
+                        SELECT parquet_relpath
+                        FROM read_parquet(?)
+                        WHERE collection = ? AND host_rev = ?
+                    """
+                    params = [url, collection, host_rev_prefix]
+
+            try:
+                rows = self._query_with_retry(sql, params)
+            except Exception:
+                continue
+
+            for row in rows:
+                if not row or not row[0]:
+                    continue
+                rel = str(row[0])
+                if rel in seen:
+                    continue
+                seen.add(rel)
+                out.append(rel)
+
+            if out:
+                # Prefer collection-level files; stop early if we already have hits.
+                break
+
+        return out
+
+    def iter_warc_candidates(
+        self,
+        collection: str,
+        parquet_relpath: str,
+        host_rev_prefix: str,
+        *,
+        limit: int,
+    ) -> Iterator[Dict[str, object]]:
+        """Stream candidate WARC pointer rows from HF pointer parquet shards."""
+
+        y = _collection_year(collection)
+        if not y:
+            return
+
+        rel = str(parquet_relpath).lstrip("/")
+        url = hf_dataset_resolve_url(
+            self.pointers_dataset_name,
+            f"{y}/{collection}/{rel}",
+            self.revision,
+        )
+        like_pat = host_rev_prefix + ",%"
+
+        sql = """
+            SELECT
+                collection,
+                shard_file,
+                url,
+                ts,
+                status,
+                mime,
+                digest,
+                warc_filename,
+                warc_offset,
+                warc_length
+            FROM read_parquet(?)
+            WHERE host_rev = ? OR host_rev LIKE ?
+        """
+        params: List[object] = [url, host_rev_prefix, like_pat]
+        if int(limit) > 0:
+            sql += "\nLIMIT ?"
+            params.append(int(limit))
+
+        rows = self._query_with_retry(sql, params)
+        for row in rows:
+            if not row:
+                continue
+            (
+                row_collection,
+                shard_file,
+                page_url,
+                ts,
+                status,
+                mime,
+                digest,
+                warc_filename,
+                warc_offset,
+                warc_length,
+            ) = row
+            yield {
+                "collection": row_collection or collection,
+                "shard_file": shard_file,
+                "url": page_url,
+                "timestamp": ts,
+                "status": int(status) if status is not None else None,
+                "mime": mime,
+                "digest": digest,
+                "warc_filename": warc_filename,
+                "warc_offset": int(warc_offset) if warc_offset is not None else None,
+                "warc_length": int(warc_length) if warc_length is not None else None,
+                "parquet_path": url,
+            }
 
 
 @dataclass(frozen=True)

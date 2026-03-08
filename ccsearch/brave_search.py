@@ -201,12 +201,12 @@ def brave_web_search(
 
     Returns a list of dicts with keys: title, url, description.
 
-    Requires env var `BRAVE_SEARCH_API_KEY` or explicit api_key.
+    Requires env var `BRAVE_SEARCH_API_KEY`/`BRAVE_API_KEY` or explicit api_key.
     """
 
-    token = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip()
+    token = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
     if not token:
-        raise RuntimeError("Missing BRAVE_SEARCH_API_KEY (set env var or pass api_key)")
+        raise RuntimeError("Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)")
 
     q = (query or "").strip()
     if not q:
@@ -338,9 +338,9 @@ def brave_web_search_page(
     - Brave's `web.total` (or similar field) is not guaranteed; if missing we return None.
     """
 
-    token = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip()
+    token = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
     if not token:
-        raise RuntimeError("Missing BRAVE_SEARCH_API_KEY (set env var or pass api_key)")
+        raise RuntimeError("Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)")
 
     q = (query or "").strip()
     if not q:

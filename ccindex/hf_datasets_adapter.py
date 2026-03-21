@@ -29,6 +29,7 @@ Environment variables:
 from __future__ import annotations
 
 import os
+import random
 import time
 import warnings
 from dataclasses import dataclass
@@ -87,6 +88,10 @@ def _collection_year(collection: str) -> Optional[str]:
     if len(parts) >= 3 and parts[2].isdigit():
         return parts[2]
     return None
+
+
+_HF_COLLECTIONS_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[Tuple[Optional[str], str], ...]] = {}
+_HF_PARQUET_RELPATHS_CACHE: Dict[Tuple[str, str, str, str, bool], Tuple[str, ...]] = {}
 
 
 class HFMetaIndexSQLReader:
@@ -173,12 +178,21 @@ class HFMetaIndexSQLReader:
                 if attempt >= self.max_retries or not _is_transient_remote_error(msg):
                     raise
                 sleep_s = self.retry_base_sleep_s * (2 ** attempt)
+                if "429" in msg or "too many requests" in msg.lower():
+                    sleep_s = max(sleep_s, 2.0)
+                if sleep_s > 0:
+                    sleep_s *= 1.0 + (0.25 * random.random())
                 if sleep_s > 0:
                     time.sleep(sleep_s)
                 attempt += 1
 
     def list_collections(self, year: Optional[str] = None) -> List[Tuple[Optional[str], str]]:
         """Return [(year, collection), ...] from the HF master collection summary."""
+
+        cache_key = (self.index_dataset_name, self.revision, str(year) if year is not None else None)
+        cached = _HF_COLLECTIONS_CACHE.get(cache_key)
+        if cached is not None:
+            return list(cached)
 
         url = hf_dataset_resolve_url(
             self.index_dataset_name,
@@ -207,6 +221,7 @@ class HFMetaIndexSQLReader:
         out: List[Tuple[Optional[str], str]] = []
         for y, coll in rows:
             out.append((str(y) if y is not None else None, str(coll)))
+        _HF_COLLECTIONS_CACHE[cache_key] = tuple(out)
         return out
 
     def _domain_shards_urls_for_collection(self, collection: str) -> List[str]:
@@ -229,6 +244,17 @@ class HFMetaIndexSQLReader:
         include_subdomains: bool = True,
     ) -> List[str]:
         """Look up parquet relative paths for a domain in HF-hosted domain-shard indexes."""
+
+        cache_key = (
+            self.index_dataset_name,
+            self.revision,
+            str(collection),
+            str(host_rev_prefix),
+            bool(include_subdomains),
+        )
+        cached = _HF_PARQUET_RELPATHS_CACHE.get(cache_key)
+        if cached is not None:
+            return list(cached)
 
         like_pat = host_rev_prefix + ",%" if include_subdomains else None
         urls = self._domain_shards_urls_for_collection(collection)
@@ -288,6 +314,8 @@ class HFMetaIndexSQLReader:
                 # Prefer collection-level files; stop early if we already have hits.
                 break
 
+        if out:
+            _HF_PARQUET_RELPATHS_CACHE[cache_key] = tuple(out)
         return out
 
     def iter_warc_candidates(

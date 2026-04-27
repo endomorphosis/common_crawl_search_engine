@@ -15,6 +15,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional
 
+try:
+    from ipfs_datasets_py.processors.web_archiving.brave_search_client import resolve_brave_search_api_key
+except Exception:  # pragma: no cover - submodule can be used standalone
+    resolve_brave_search_api_key = None  # type: ignore[assignment]
+
 
 def brave_web_search_max_count() -> int:
     """Return the maximum per-request result count supported by Brave web search.
@@ -204,7 +209,11 @@ def brave_web_search(
     Requires env var `BRAVE_SEARCH_API_KEY`/`BRAVE_API_KEY` or explicit api_key.
     """
 
-    token = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
+    token = (
+        resolve_brave_search_api_key(api_key)
+        if resolve_brave_search_api_key is not None
+        else (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
+    )
     if not token:
         raise RuntimeError("Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)")
 
@@ -338,7 +347,11 @@ def brave_web_search_page(
     - Brave's `web.total` (or similar field) is not guaranteed; if missing we return None.
     """
 
-    token = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
+    token = (
+        resolve_brave_search_api_key(api_key)
+        if resolve_brave_search_api_key is not None
+        else (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
+    )
     if not token:
         raise RuntimeError("Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)")
 

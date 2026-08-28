@@ -35,7 +35,7 @@ import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Set, Tuple, Union
+from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
 # Lazy imports for optional dependencies
 _have_datasets = False
@@ -325,8 +325,16 @@ class HFMetaIndexSQLReader:
         host_rev_prefix: str,
         *,
         limit: int,
+        url_prefixes: Optional[Sequence[str]] = None,
     ) -> Iterator[Dict[str, object]]:
-        """Stream candidate WARC pointer rows from HF pointer parquet shards."""
+        """Stream candidate WARC pointers with optional URL-prefix pushdown.
+
+        Domain-shard lookup identifies the small set of pointer parquet files,
+        while ``url_prefixes`` keeps DuckDB from materializing unrelated pages
+        from the same host.  This is particularly important for large official
+        code frontiers: one prefix query can discover every section locator and
+        the caller can subsequently group their byte ranges by WARC object.
+        """
 
         y = _collection_year(collection)
         if not y:
@@ -353,9 +361,21 @@ class HFMetaIndexSQLReader:
                 warc_offset,
                 warc_length
             FROM read_parquet(?)
-            WHERE host_rev = ? OR host_rev LIKE ?
+            WHERE (host_rev = ? OR host_rev LIKE ?)
         """
         params: List[object] = [url, host_rev_prefix, like_pat]
+        normalized_prefixes = tuple(
+            dict.fromkeys(
+                str(prefix or "").strip().rstrip("%*")
+                for prefix in (url_prefixes or ())
+                if str(prefix or "").strip().rstrip("%*")
+            )
+        )
+        if normalized_prefixes:
+            sql += "\nAND (" + " OR ".join(
+                "url LIKE ?" for _prefix in normalized_prefixes
+            ) + ")"
+            params.extend(f"{prefix}%" for prefix in normalized_prefixes)
         if int(limit) > 0:
             sql += "\nLIMIT ?"
             params.append(int(limit))

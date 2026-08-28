@@ -28,7 +28,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple, Union
 
 # Import HuggingFace datasets adapter (optional)
 try:
@@ -51,6 +51,18 @@ _CC_POINTERS_FASTPATH_AVAILABLE: Optional[bool] = None
 
 # Process-level memo: whether the per-collection domain pointer indexes exist.
 _DOMAIN_POINTER_INDEX_AVAILABLE: Optional[bool] = None
+
+_MODULE_SOURCE_PATH = Path(__file__).resolve()
+MODULE_IMPORT_SOURCE_SHA256 = hashlib.sha256(_MODULE_SOURCE_PATH.read_bytes()).hexdigest()
+
+
+def assert_module_source_unchanged() -> str:
+    """Fail if this producer's source bytes changed after module import."""
+
+    current = hashlib.sha256(_MODULE_SOURCE_PATH.read_bytes()).hexdigest()
+    if current != MODULE_IMPORT_SOURCE_SHA256:
+        raise RuntimeError(f"loaded module source drifted on disk: {_MODULE_SOURCE_PATH}")
+    return current
 
 
 def _domain_pointer_index_dir() -> Path:
@@ -1027,6 +1039,7 @@ def iter_warc_candidates_from_parquet(
     host_rev_prefix: str,
     *,
     limit: int,
+    url_prefixes: Optional[Sequence[str]] = None,
 ) -> Iterator[Dict[str, object]]:
     duckdb = _require_duckdb()
     like_pat = host_rev_prefix + ",%"
@@ -1085,6 +1098,19 @@ def iter_warc_candidates_from_parquet(
         else:
             where_sql = "TRUE"
             params = []
+
+        normalized_prefixes = tuple(
+            dict.fromkeys(
+                str(prefix or "").strip().rstrip("%*")
+                for prefix in (url_prefixes or ())
+                if str(prefix or "").strip().rstrip("%*")
+            )
+        )
+        if normalized_prefixes:
+            where_sql += " AND (" + " OR ".join(
+                "url LIKE ?" for _prefix in normalized_prefixes
+            ) + ")"
+            params.extend(f"{prefix}%" for prefix in normalized_prefixes)
 
         # Treat non-positive as "no cap".
         use_limit = int(limit) > 0
@@ -1172,6 +1198,7 @@ def iter_domain_records_via_meta_indexes(
     master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
     year_db: Optional[Path] = None,
     collection_db: Optional[Path] = None,
+    collection: Optional[str] = None,
     year: Optional[str] = None,
     max_parquet_files: int = 200,
     max_matches: int = 200,
@@ -1180,6 +1207,7 @@ def iter_domain_records_via_meta_indexes(
     hf_meta_index_dataset: Optional[str] = None,
     hf_pointer_dataset: Optional[str] = None,
     hf_revision: Optional[str] = None,
+    url_prefixes: Optional[Sequence[str]] = None,
     stats_out: Optional[Dict[str, object]] = None,
 ) -> Iterator[Dict[str, object]]:
     """Stream candidate CCIndex pointer records for a domain.
@@ -1209,6 +1237,18 @@ def iter_domain_records_via_meta_indexes(
     parquet_root = Path(parquet_root).expanduser().resolve()
     if not remote_meta_enabled and not parquet_root.exists():
         raise FileNotFoundError(f"Parquet root does not exist: {parquet_root}")
+
+    requested_collection = str(collection or "").strip() or None
+    if requested_collection and year is None:
+        year = collection_year(requested_collection)
+
+    normalized_url_prefixes: tuple[str, ...] = tuple(
+        dict.fromkeys(
+            str(prefix or "").strip().rstrip("%*")
+            for prefix in (url_prefixes or ())
+            if str(prefix or "").strip().rstrip("%*")
+        )
+    )
 
     # 1) Discover collections via meta-index layer.
     hf_sql_reader = None
@@ -1253,6 +1293,13 @@ def iter_domain_records_via_meta_indexes(
         mdb = Path(master_db).expanduser().resolve()
         collections = load_collections_from_master(mdb, year)
         meta_source = f"master-db:{mdb}"
+
+    if requested_collection is not None:
+        collections = [
+            cref
+            for cref in collections
+            if cref.collection == requested_collection
+        ]
 
     if stats_out is not None:
         stats_out["meta_source"] = meta_source
@@ -1311,11 +1358,16 @@ def iter_domain_records_via_meta_indexes(
                 per_file_limit = min(per_parquet_limit_cap or 0, remaining or 0)
 
             if remote_meta_enabled:
+                candidate_kwargs: Dict[str, object] = {
+                    "limit": int(per_file_limit),
+                }
+                if normalized_url_prefixes:
+                    candidate_kwargs["url_prefixes"] = normalized_url_prefixes
                 candidate_iter = hf_sql_reader.iter_warc_candidates(
                     cref.collection,
                     rel,
                     host_rev_prefix,
-                    limit=int(per_file_limit),
+                    **candidate_kwargs,
                 )
             else:
                 parquet_dir = get_collection_parquet_dir(parquet_root, cref.collection)
@@ -1328,6 +1380,7 @@ def iter_domain_records_via_meta_indexes(
                     parquet_path,
                     host_rev_prefix,
                     limit=int(per_file_limit),
+                    url_prefixes=normalized_url_prefixes,
                 )
 
             for rec in candidate_iter:
@@ -1344,6 +1397,7 @@ def search_domain_via_meta_indexes(
     master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
     year_db: Optional[Path] = None,
     collection_db: Optional[Path] = None,
+    collection: Optional[str] = None,
     year: Optional[str] = None,
     max_parquet_files: int = 200,
     max_matches: int = 200,
@@ -1352,6 +1406,7 @@ def search_domain_via_meta_indexes(
     hf_meta_index_dataset: Optional[str] = None,
     hf_pointer_dataset: Optional[str] = None,
     hf_revision: Optional[str] = None,
+    url_prefixes: Optional[Sequence[str]] = None,
 ) -> MetaIndexSearchResult:
     """Search using master/year meta-indexes to find candidate WARC pointers.
 
@@ -1368,6 +1423,7 @@ def search_domain_via_meta_indexes(
         master_db=master_db,
         year_db=year_db,
         collection_db=collection_db,
+        collection=collection,
         year=year,
         max_parquet_files=max_parquet_files,
         max_matches=max_matches,
@@ -1376,6 +1432,7 @@ def search_domain_via_meta_indexes(
         hf_meta_index_dataset=hf_meta_index_dataset,
         hf_pointer_dataset=hf_pointer_dataset,
         hf_revision=hf_revision,
+        url_prefixes=url_prefixes,
         stats_out=stats,
     ):
         records.append(rec)
@@ -3843,6 +3900,50 @@ def warc_download_url(warc_filename_or_url: str, *, prefix: str = "https://data.
     return pref + warc.lstrip("/")
 
 
+def _canonical_common_crawl_warc_object_url(value: object) -> str:
+    """Return one exact HTTPS data.commoncrawl.org WARC object locator."""
+
+    if type(value) is not str or not value or value != value.strip():
+        raise ValueError("Common Crawl WARC URL must use exact string spelling")
+    raw = value
+    if any(ord(character) < 0x21 or ord(character) > 0x7E for character in raw):
+        raise ValueError("Common Crawl WARC URL must use printable ASCII")
+    if "#" in raw or "\\" in raw or "%" in raw:
+        raise ValueError("Common Crawl WARC URL contains an unsafe path spelling")
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        port = parsed.port
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Common Crawl WARC URL has an invalid authority") from exc
+    parts = parsed.path.split("/")
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "data.commoncrawl.org"
+        or parsed.netloc != "data.commoncrawl.org"
+        or port is not None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or len(parts) < 4
+        or parts[0] != ""
+        or parts[1] != "crawl-data"
+        or any(part in {"", ".", ".."} for part in parts[1:])
+        or re.fullmatch(r".+\.warc(?:\.gz)?", parts[-1], re.IGNORECASE) is None
+        or raw != f"https://data.commoncrawl.org{parsed.path}"
+    ):
+        raise ValueError("Common Crawl WARC URL is not a canonical object locator")
+    return raw
+
+
+class _NoHttpRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Make every 3xx response observable as an error instead of following it."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        del req, fp, code, msg, headers, newurl
+        return None
+
+
 def _default_warc_cache_dir() -> Optional[Path]:
     """Return a default cache dir for fetched WARC byte ranges.
 
@@ -4192,7 +4293,20 @@ def _http_range_get_cached(
     import time as _time
     import sys as _sys
 
-    bytes_requested = int(end_inclusive) - int(start) + 1
+    try:
+        canonical_url = _canonical_common_crawl_warc_object_url(url)
+    except ValueError as exc:
+        return None, None, str(exc)
+    if (
+        isinstance(start, bool)
+        or isinstance(end_inclusive, bool)
+        or type(start) is not int
+        or type(end_inclusive) is not int
+        or start < 0
+        or end_inclusive < start
+    ):
+        return None, None, "range bounds must be canonical non-negative integers"
+    bytes_requested = end_inclusive - start + 1
 
     cache_path: Optional[Path] = None
     if cache_dir is not None:
@@ -4200,11 +4314,22 @@ def _http_range_get_cached(
             cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
             if bytes_requested > 0 and bytes_requested <= int(cache_max_item_bytes):
-                cache_path = _cache_path_for_range(cache_dir, url=url, start=int(start), end_inclusive=int(end_inclusive))
+                cache_path = _cache_path_for_range(cache_dir, url=canonical_url, start=start, end_inclusive=end_inclusive)
                 if cache_path.exists() and cache_path.is_file():
                     try:
-                        if cache_path.stat().st_size == bytes_requested:
+                        digest_path = cache_path.with_suffix(cache_path.suffix + ".sha256")
+                        expected_digest = (
+                            digest_path.read_text(encoding="ascii")
+                            if digest_path.exists() and digest_path.is_file()
+                            else ""
+                        )
+                        if (
+                            cache_path.stat().st_size == bytes_requested
+                            and re.fullmatch(r"[a-f0-9]{64}", expected_digest) is not None
+                        ):
                             data = cache_path.read_bytes()
+                            if hashlib.sha256(data).hexdigest() != expected_digest:
+                                raise ValueError("cached WARC range digest mismatch")
                             if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
                                 _sys.stderr.write(
                                     f"cc_warc_range cache_hit bytes={bytes_requested} start={int(start)} end={int(end_inclusive)} url={url}\n"
@@ -4215,18 +4340,45 @@ def _http_range_get_cached(
         except Exception:
             cache_path = None
 
-    req = urllib.request.Request(url, method="GET")
-    req.add_header("Range", f"bytes={int(start)}-{int(end_inclusive)}")
+    req = urllib.request.Request(canonical_url, method="GET")
+    req.add_header("Range", f"bytes={start}-{end_inclusive}")
 
     t0 = _time.perf_counter()
     try:
-        with urllib.request.urlopen(req, timeout=float(timeout_s)) as resp:
-            status = int(getattr(resp, "status", 200))
+        opener = urllib.request.build_opener(_NoHttpRedirectHandler())
+        with opener.open(req, timeout=float(timeout_s)) as resp:
+            status = int(getattr(resp, "status", 0) or 0)
             if status != 206:
                 # Don't read the body here; if the server ignores Range it may be
                 # a multi-GB response.
                 return status, None, f"expected 206 for range GET, got {status}"
-            data = resp.read()
+            final_url = str(getattr(resp, "geturl", lambda: "")() or "")
+            if final_url != canonical_url:
+                return status, None, "range GET final locator drifted"
+            content_range = str(resp.headers.get("Content-Range") or "")
+            range_match = re.fullmatch(
+                r"bytes ([0-9]+)-([0-9]+)/([1-9][0-9]*)",
+                content_range,
+            )
+            if (
+                range_match is None
+                or int(range_match.group(1)) != start
+                or int(range_match.group(2)) != end_inclusive
+                or int(range_match.group(3)) <= end_inclusive
+            ):
+                return status, None, "range GET returned an invalid Content-Range"
+            content_length = str(resp.headers.get("Content-Length") or "")
+            if (
+                re.fullmatch(r"[1-9][0-9]*", content_length) is None
+                or int(content_length) != bytes_requested
+            ):
+                return status, None, "range GET returned an invalid Content-Length"
+            data = resp.read(bytes_requested + 1)
+            if len(data) != bytes_requested:
+                return status, None, (
+                    "range GET body length mismatch "
+                    f"expected={bytes_requested} got={len(data)}"
+                )
 
         if _os.environ.get("CCINDEX_WARC_FETCH_LOG", "").strip():
             dt = max(1e-6, _time.perf_counter() - t0)
@@ -4245,6 +4397,10 @@ def _http_range_get_cached(
                 tmp.write_bytes(data)
                 if tmp.stat().st_size == bytes_requested:
                     tmp.replace(cache_path)
+                    digest_path = cache_path.with_suffix(cache_path.suffix + ".sha256")
+                    digest_tmp = digest_path.with_suffix(digest_path.suffix + ".part")
+                    digest_tmp.write_text(hashlib.sha256(data).hexdigest(), encoding="ascii")
+                    digest_tmp.replace(digest_path)
                     _maybe_prune_cache(cache_path.parent, max_cache_bytes=int(cache_max_bytes))
                 else:
                     try:
@@ -4665,6 +4821,7 @@ def fetch_warc_record_ranges_sliced(
     cache_dir: Optional[Path] = None,
     cache_max_bytes: int = 2_000_000_000,
     cache_max_item_bytes: int = 25_000_000,
+    stats_out: Optional[Dict[str, object]] = None,
 ) -> Tuple[Dict[Tuple[int, int], bytes], Dict[Tuple[int, int], str]]:
     """Fetch multiple WARC record ranges using a small number of Range GETs.
 
@@ -4678,6 +4835,7 @@ def fetch_warc_record_ranges_sliced(
     """
 
     url = warc_download_url(str(warc_filename), prefix=prefix)
+    requested_range_count = len(ranges or [])
 
     # Normalize input while keeping a stable key.
     wanted: List[Tuple[int, int]] = []
@@ -4688,9 +4846,26 @@ def fetch_warc_record_ranges_sliced(
             continue
         wanted.append((o, l))
 
+    valid_range_count = len(wanted)
+    requested_member_bytes = sum(int(ln) for _off, ln in wanted)
     data_by: Dict[Tuple[int, int], bytes] = {}
     err_by: Dict[Tuple[int, int], str] = {}
     if not wanted:
+        if stats_out is not None:
+            stats_out.clear()
+            stats_out.update(
+                {
+                    "warc_objects": 0,
+                    "requested_ranges": requested_range_count,
+                    "invalid_ranges": requested_range_count,
+                    "unique_ranges": 0,
+                    "duplicate_ranges": 0,
+                    "planned_range_fetches": 0,
+                    "range_fetch_calls": 0,
+                    "records_succeeded": 0,
+                    "records_failed": 0,
+                }
+            )
         return data_by, err_by
 
     # De-dupe exact duplicates to avoid redundant work.
@@ -4701,6 +4876,7 @@ def fetch_warc_record_ranges_sliced(
         max_slice_bytes=int(max_slice_bytes),
         max_gap_bytes=int(max_gap_bytes),
     )
+    planned_slice_count = len(slices)
 
     # Optionally expand each slice to at least min_slice_bytes to amortize per-request overhead.
     # This may fetch extra bytes that are not part of any record, but can greatly improve
@@ -4723,6 +4899,26 @@ def fetch_warc_record_ranges_sliced(
 
     if cache_dir is None:
         cache_dir = _default_warc_cache_dir()
+
+    planned_slice_bytes = sum(
+        int(slice_end) - int(slice_start) + 1
+        for slice_start, slice_end, _members in slices
+    )
+    member_union_bytes = 0
+    for _slice_start, _slice_end, members in slices:
+        union_end: Optional[int] = None
+        for off, ln in sorted(members, key=lambda item: (int(item[0]), int(item[1]))):
+            member_start = int(off)
+            member_end = member_start + int(ln) - 1
+            if union_end is None or member_start > union_end:
+                member_union_bytes += int(ln)
+            elif member_end > union_end:
+                member_union_bytes += member_end - union_end
+            union_end = member_end if union_end is None else max(union_end, member_end)
+
+    range_fetch_calls = 0
+    retry_range_fetches = 0
+    retry_bytes_requested = 0
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -4761,9 +4957,21 @@ def fetch_warc_record_ranges_sliced(
                 slice_results.append((int(s0), int(s1), mem, status, blob, err))
         slice_results.sort(key=lambda t: (t[0], t[1]))
 
+    range_fetch_calls += len(slices)
+
     for slice_start, slice_end, members, status, blob, err in slice_results:
         if blob is None or err is not None:
             msg = err or f"slice fetch failed status={status}"
+            for off, ln in members:
+                err_by[(int(off), int(ln))] = msg
+            continue
+
+        expected_slice_length = int(slice_end) - int(slice_start) + 1
+        if len(blob) != expected_slice_length:
+            msg = (
+                "slice length mismatch "
+                f"expected={expected_slice_length} got={len(blob)}"
+            )
             for off, ln in members:
                 err_by[(int(off), int(ln))] = msg
             continue
@@ -4786,6 +4994,9 @@ def fetch_warc_record_ranges_sliced(
             err_by[key] = "missing"
         # One retry per missing range.
         end_inclusive = int(off) + int(ln) - 1
+        range_fetch_calls += 1
+        retry_range_fetches += 1
+        retry_bytes_requested += int(ln)
         status, blob, err = _http_range_get_cached(
             url=url,
             start=int(off),
@@ -4799,6 +5010,43 @@ def fetch_warc_record_ranges_sliced(
             data_by[key] = blob
             err_by.pop(key, None)
         else:
-            err_by[key] = err or f"direct range fetch failed status={status}"
+            if blob is not None and err is None:
+                err_by[key] = (
+                    "direct range length mismatch "
+                    f"expected={int(ln)} got={len(blob)}"
+                )
+            else:
+                err_by[key] = err or f"direct range fetch failed status={status}"
+
+    if stats_out is not None:
+        unique_range_count = len(wanted)
+        stats_out.clear()
+        stats_out.update(
+            {
+                "warc_objects": 1,
+                "requested_ranges": requested_range_count,
+                "invalid_ranges": max(0, requested_range_count - valid_range_count),
+                "unique_ranges": unique_range_count,
+                "duplicate_ranges": max(0, valid_range_count - unique_range_count),
+                "planned_range_fetches": planned_slice_count,
+                "range_fetch_calls": range_fetch_calls,
+                "retry_range_fetches": retry_range_fetches,
+                "naive_range_fetches": valid_range_count,
+                "planned_range_fetches_avoided": max(
+                    0, valid_range_count - planned_slice_count
+                ),
+                "effective_range_fetches_avoided": max(
+                    0, valid_range_count - range_fetch_calls
+                ),
+                "requested_member_bytes": requested_member_bytes,
+                "unique_member_bytes": sum(int(ln) for _off, ln in wanted),
+                "member_union_bytes": member_union_bytes,
+                "planned_slice_bytes": planned_slice_bytes,
+                "coalesced_gap_bytes": max(0, planned_slice_bytes - member_union_bytes),
+                "retry_bytes_requested": retry_bytes_requested,
+                "records_succeeded": len(data_by),
+                "records_failed": len(err_by),
+            }
+        )
 
     return data_by, err_by

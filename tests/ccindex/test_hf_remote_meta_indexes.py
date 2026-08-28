@@ -114,6 +114,123 @@ def test_search_domain_remote_meta_mode(monkeypatch) -> None:
     assert len(res.records) == 1
 
 
+def test_remote_meta_scopes_exact_collection_and_pushes_url_prefixes(monkeypatch) -> None:
+    observed = {}
+
+    class FakeReader:
+        def __init__(self, **_kwargs):
+            self.index_dataset_name = "idx"
+            self.pointers_dataset_name = "ptr"
+            self.revision = "main"
+
+        def list_collections(self, year=None):
+            observed["year"] = year
+            return [
+                ("2026", "CC-MAIN-2026-30"),
+                ("2026", "CC-MAIN-2026-34"),
+            ]
+
+        def parquet_relpaths_for_domain(
+            self,
+            collection,
+            host_rev_prefix,
+            include_subdomains=True,
+        ):
+            observed["collection"] = collection
+            observed["host_rev_prefix"] = host_rev_prefix
+            return ["cdx-00042.gz.sorted.parquet"]
+
+        def iter_warc_candidates(
+            self,
+            collection,
+            parquet_relpath,
+            host_rev_prefix,
+            *,
+            limit,
+            url_prefixes=None,
+        ):
+            observed["candidate"] = {
+                "collection": collection,
+                "parquet_relpath": parquet_relpath,
+                "host_rev_prefix": host_rev_prefix,
+                "limit": limit,
+                "url_prefixes": url_prefixes,
+            }
+            yield {
+                "collection": collection,
+                "url": "https://www.legis.ga.gov/legislation/georgia-code/title-1",
+                "timestamp": "20260820000000",
+                "status": 200,
+                "mime": "text/html",
+                "warc_filename": "crawl-data/CC-MAIN-2026-34/example.warc.gz",
+                "warc_offset": 10,
+                "warc_length": 20,
+            }
+
+    monkeypatch.setattr(api, "_HF_AVAILABLE", True)
+    monkeypatch.setattr(api, "HFMetaIndexSQLReader", FakeReader)
+    prefixes = (
+        "https://www.legis.ga.gov/legislation/georgia-code/",
+        "http://www.legis.ga.gov/legislation/georgia-code/",
+    )
+
+    rows = list(
+        api.iter_domain_records_via_meta_indexes(
+            "www.legis.ga.gov",
+            parquet_root=Path("/path/that/does/not/exist"),
+            master_db=None,
+            collection="CC-MAIN-2026-34",
+            max_matches=100,
+            per_parquet_limit=100,
+            hf_remote_meta=True,
+            url_prefixes=prefixes,
+        )
+    )
+
+    assert len(rows) == 1
+    assert observed["year"] == "2026"
+    assert observed["collection"] == "CC-MAIN-2026-34"
+    assert observed["candidate"]["url_prefixes"] == prefixes
+
+
+def test_hf_pointer_sql_applies_url_prefix_before_limit(monkeypatch) -> None:
+    observed = {}
+
+    def fake_query(self, sql, params):
+        observed["sql"] = sql
+        observed["params"] = params
+        return []
+
+    monkeypatch.setattr(HFMetaIndexSQLReader, "_query_with_retry", fake_query)
+    reader = HFMetaIndexSQLReader(
+        index_dataset_name="idx",
+        pointers_dataset_name="ptr",
+        revision="main",
+    )
+
+    assert list(
+        reader.iter_warc_candidates(
+            "CC-MAIN-2026-34",
+            "cdx-00042.gz.sorted.parquet",
+            "gov,ga,legis,www",
+            limit=25,
+            url_prefixes=(
+                "https://www.legis.ga.gov/legislation/georgia-code/",
+                "http://www.legis.ga.gov/legislation/georgia-code/",
+            ),
+        )
+    ) == []
+
+    assert "WHERE (host_rev = ? OR host_rev LIKE ?)" in observed["sql"]
+    assert "AND (url LIKE ? OR url LIKE ?)" in observed["sql"]
+    assert observed["sql"].index("url LIKE") < observed["sql"].index("LIMIT")
+    assert observed["params"][-3:] == [
+        "https://www.legis.ga.gov/legislation/georgia-code/%",
+        "http://www.legis.ga.gov/legislation/georgia-code/%",
+        25,
+    ]
+
+
 def test_hf_remote_list_collections_cache_reused_across_readers(monkeypatch) -> None:
     hf_datasets_adapter._HF_COLLECTIONS_CACHE.clear()
     calls = {"count": 0}

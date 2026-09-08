@@ -21,13 +21,14 @@ Usage:
 Environment variables:
     - HF_DATASET_NAME: HuggingFace dataset name (default: Publicus/common_crawl_pointers_by_collection)
     - HF_DATASET_REVISION: Dataset revision/tag to use (default: main)
-    - HF_TOKEN: HuggingFace API token for private datasets
+    - HF_TOKEN / HUGGINGFACE_HUB_TOKEN / huggingface_hub cached login: optional Hub token
     - HF_CACHE_DIR: Cache directory for downloaded data (default: ~/.cache/huggingface/datasets)
     - HF_ENABLE_REMOTE: Enable remote HuggingFace access (default: true)
 """
 
 from __future__ import annotations
 
+import importlib
 import os
 import random
 import time
@@ -36,6 +37,91 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
+
+_HF_TOKEN_ENV_NAMES = (
+    "IPFS_DATASETS_PY_HF_API_TOKEN",
+    "HUGGINGFACEHUB_API_TOKEN",
+    "HUGGINGFACE_API_TOKEN",
+    "HUGGINGFACE_HUB_TOKEN",
+    "HUGGINGFACE_API_KEY",
+    "HF_TOKEN",
+    "HF_API_TOKEN",
+)
+
+
+def resolve_huggingface_token(explicit_token: Optional[str] = None) -> str:
+    """Return a Hub token from an explicit value, env, or the local huggingface_hub login.
+
+    Does not log or raise on a missing token: anonymous public-dataset access remains
+    valid. Cached ``huggingface_hub.get_token()`` logins (``~/.cache/huggingface/token``)
+    are used when no environment variable is set.
+    """
+
+    if explicit_token is not None and str(explicit_token).strip():
+        return str(explicit_token).strip()
+    for name in _HF_TOKEN_ENV_NAMES:
+        value = os.getenv(name)
+        if value and str(value).strip():
+            return str(value).strip()
+    try:
+        hub = importlib.import_module("huggingface_hub")
+        getter = getattr(hub, "get_token", None)
+        resolved = getter() if callable(getter) else ""
+        if resolved is not None and str(resolved).strip():
+            return str(resolved).strip()
+    except Exception:
+        return ""
+    return ""
+
+
+def huggingface_authorization_headers(token: Optional[str] = None) -> Dict[str, str]:
+    """Return ``Authorization: Bearer …`` headers when a Hub token is available."""
+
+    resolved = resolve_huggingface_token(token)
+    if not resolved:
+        return {}
+    return {"Authorization": f"Bearer {resolved}"}
+
+
+def configure_duckdb_huggingface_auth(connection: object, token: Optional[str] = None) -> bool:
+    """Attach a DuckDB HuggingFace secret when a token is available.
+
+    Uses a bound parameter so the token is not interpolated into SQL. Returns True
+    only when a secret was created. Failures stay anonymous rather than aborting
+    the query.
+    """
+
+    resolved = resolve_huggingface_token(token)
+    if not resolved:
+        return False
+    execute = getattr(connection, "execute", None)
+    if not callable(execute):
+        return False
+    try:
+        try:
+            execute("LOAD httpfs")
+        except Exception:
+            try:
+                execute("INSTALL httpfs")
+                execute("LOAD httpfs")
+            except Exception:
+                pass
+        execute(
+            "CREATE OR REPLACE SECRET ipfs_datasets_huggingface "
+            "(TYPE HUGGINGFACE, TOKEN ?)",
+            [resolved],
+        )
+        return True
+    except Exception:
+        try:
+            execute(
+                "CREATE OR REPLACE SECRET ipfs_datasets_huggingface_http "
+                "(TYPE HTTP, EXTRA_HTTP_HEADERS MAP {'Authorization': ?})",
+                [f"Bearer {resolved}"],
+            )
+            return True
+        except Exception:
+            return False
 
 # Lazy imports for optional dependencies
 _have_datasets = False
@@ -110,6 +196,7 @@ class HFMetaIndexSQLReader:
         revision: Optional[str] = None,
         max_retries: Optional[int] = None,
         retry_base_sleep_s: Optional[float] = None,
+        token: Optional[str] = None,
     ):
         self.index_dataset_name = (
             index_dataset_name
@@ -150,6 +237,7 @@ class HFMetaIndexSQLReader:
             self.retry_base_sleep_s = 0.5
         if self.retry_base_sleep_s < 0:
             self.retry_base_sleep_s = 0.0
+        self.token = token
 
     def _require_duckdb(self):
         try:
@@ -169,6 +257,7 @@ class HFMetaIndexSQLReader:
             try:
                 con = duckdb.connect(database=":memory:")
                 try:
+                    configure_duckdb_huggingface_auth(con, token=self.token)
                     con.execute("PRAGMA threads=4")
                     return con.execute(sql, params).fetchall()
                 finally:
@@ -458,7 +547,7 @@ class HFRowGroupReader:
             "HF_DATASET_NAME", "Publicus/common_crawl_pointers_by_collection"
         )
         self.revision = revision or os.environ.get("HF_DATASET_REVISION", "main")
-        self.token = token or os.environ.get("HF_TOKEN")
+        self.token = resolve_huggingface_token(token) or None
         self.cache_dir = cache_dir or os.environ.get("HF_CACHE_DIR")
         self.enable_remote = enable_remote
         if os.environ.get("HF_ENABLE_REMOTE", "").lower() in ("false", "0", "no"):

@@ -152,7 +152,9 @@ def _read_snapshot(path: Path) -> Optional[Snapshot]:
 
 def _iter_progress_files(db_dir: Path) -> List[Path]:
     # progress_*.json (ignore progress_all.json for now)
-    return sorted(p for p in db_dir.glob("progress_*.json") if p.is_file() and p.name != "progress_all.json")
+    return sorted(
+        p for p in db_dir.glob("progress_*.json") if p.is_file() and p.name != "progress_all.json"
+    )
 
 
 def _db_path_for_snapshot(db_dir: Path, s: Snapshot) -> Path:
@@ -173,7 +175,9 @@ def _iter_collections(input_root: Path) -> Iterable[Path]:
             yield entry
 
 
-def _count_expected_shards_by_year(input_root: Path, collections_regex: Optional[str]) -> Dict[int, int]:
+def _count_expected_shards_by_year(
+    input_root: Path, collections_regex: Optional[str]
+) -> Dict[int, int]:
     rx = re.compile(collections_regex) if collections_regex else None
 
     counts: Dict[int, int] = {}
@@ -200,7 +204,9 @@ def _count_expected_shards_by_year(input_root: Path, collections_regex: Optional
     return counts
 
 
-def _count_expected_shards_by_collection(input_root: Path, collections_regex: Optional[str]) -> Dict[str, int]:
+def _count_expected_shards_by_collection(
+    input_root: Path, collections_regex: Optional[str]
+) -> Dict[str, int]:
     rx = re.compile(collections_regex) if collections_regex else None
 
     counts: Dict[str, int] = {}
@@ -313,7 +319,18 @@ def _render_once(
         print("No progress_*.json snapshots found.")
         return 2
 
-    header = ["shard", "year", "db_size", "files", "expected", "pct", "rows", "rows_per_sec", "updated_at", "last"]
+    header = [
+        "shard",
+        "year",
+        "db_size",
+        "files",
+        "expected",
+        "pct",
+        "rows",
+        "rows_per_sec",
+        "updated_at",
+        "last",
+    ]
     print("\t".join(header))
 
     total_rows = 0
@@ -334,7 +351,9 @@ def _render_once(
             if mod is not None and rem is not None and input_root is not None:
                 key = (base, int(mod), int(rem))
                 if key not in expected_part_cache:
-                    expected_part_cache[key] = _count_expected_part_shards(input_root / base, int(mod), int(rem))
+                    expected_part_cache[key] = _count_expected_part_shards(
+                        input_root / base, int(mod), int(rem)
+                    )
                 exp = expected_part_cache.get(key)
             else:
                 exp = expected_by_collection.get(base)
@@ -382,11 +401,30 @@ def _render_once(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db-dir", required=True, type=str, help="Directory containing cc_pointers_*.duckdb + progress_*.json")
-    ap.add_argument("--input-root", type=str, default=None, help="Optional CC index root to compute expected shard counts")
-    ap.add_argument("--collections-regex", type=str, default=None, help="Regex filter for collections when counting expected shards")
-    ap.add_argument("--pid-file", type=str, default=None, help="Optional PID file to check process health")
-    ap.add_argument("--log-file", type=str, default=None, help="Optional build log file to show last line")
+    ap.add_argument(
+        "--db-dir",
+        required=True,
+        type=str,
+        help="Directory containing cc_pointers_*.duckdb + progress_*.json",
+    )
+    ap.add_argument(
+        "--input-root",
+        type=str,
+        default=None,
+        help="Optional CC index root to compute expected shard counts",
+    )
+    ap.add_argument(
+        "--collections-regex",
+        type=str,
+        default=None,
+        help="Regex filter for collections when counting expected shards",
+    )
+    ap.add_argument(
+        "--pid-file", type=str, default=None, help="Optional PID file to check process health"
+    )
+    ap.add_argument(
+        "--log-file", type=str, default=None, help="Optional build log file to show last line"
+    )
     ap.add_argument("--interval", type=int, default=30, help="Seconds between updates")
     ap.add_argument("--once", action="store_true", default=False, help="Print once and exit")
     args = ap.parse_args()

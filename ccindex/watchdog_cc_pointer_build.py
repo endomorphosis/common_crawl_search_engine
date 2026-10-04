@@ -171,7 +171,9 @@ def _workers_from_plan(plan: Dict[str, Any]) -> Tuple[List[Worker], List[str]]:
 
 def _build_cmd(plan: Dict[str, Any], w: Worker) -> List[str]:
     python_exe = str(plan.get("python") or sys.executable)
-    build_script = str(plan.get("build_script") or (Path(__file__).parent / "build_cc_pointer_duckdb.py"))
+    build_script = str(
+        plan.get("build_script") or (Path(__file__).parent / "build_cc_pointer_duckdb.py")
+    )
 
     cmd: List[str] = [
         python_exe,
@@ -248,28 +250,78 @@ def _current_running(workers: List[Worker]) -> List[Tuple[Worker, int]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db-dir", required=True, type=str, help="Directory containing build_plan.json + build_worker_*.pid/log")
-    ap.add_argument("--plan-file", type=str, default=None, help="Path to plan JSON (default: <db-dir>/build_plan.json)")
+    ap.add_argument(
+        "--db-dir",
+        required=True,
+        type=str,
+        help="Directory containing build_plan.json + build_worker_*.pid/log",
+    )
+    ap.add_argument(
+        "--plan-file",
+        type=str,
+        default=None,
+        help="Path to plan JSON (default: <db-dir>/build_plan.json)",
+    )
 
     ap.add_argument("--interval", type=int, default=15, help="Seconds between checks")
 
-    ap.add_argument("--target-running", type=int, default=8, help="Desired number of running workers when healthy")
-    ap.add_argument("--min-running", type=int, default=1, help="Never reduce below this many workers")
+    ap.add_argument(
+        "--target-running",
+        type=int,
+        default=8,
+        help="Desired number of running workers when healthy",
+    )
+    ap.add_argument(
+        "--min-running", type=int, default=1, help="Never reduce below this many workers"
+    )
 
-    ap.add_argument("--low-mem-gib", type=float, default=20.0, help="If MemAvailable < this, start stopping workers")
-    ap.add_argument("--high-mem-gib", type=float, default=40.0, help="If MemAvailable > this, allow restarts")
+    ap.add_argument(
+        "--low-mem-gib",
+        type=float,
+        default=20.0,
+        help="If MemAvailable < this, start stopping workers",
+    )
+    ap.add_argument(
+        "--high-mem-gib", type=float, default=40.0, help="If MemAvailable > this, allow restarts"
+    )
 
-    ap.add_argument("--critical-mem-gib", type=float, default=8.0, help="If MemAvailable < this, stop down to --min-running immediately")
-    ap.add_argument("--stop-grace-seconds", type=int, default=20, help="Seconds to wait after SIGINT before SIGKILL")
+    ap.add_argument(
+        "--critical-mem-gib",
+        type=float,
+        default=8.0,
+        help="If MemAvailable < this, stop down to --min-running immediately",
+    )
+    ap.add_argument(
+        "--stop-grace-seconds",
+        type=int,
+        default=20,
+        help="Seconds to wait after SIGINT before SIGKILL",
+    )
 
-    ap.add_argument("--initial-backoff-seconds", type=int, default=30, help="Base backoff before restarting a failed worker")
-    ap.add_argument("--max-backoff-seconds", type=int, default=15 * 60, help="Max backoff between restarts per worker")
+    ap.add_argument(
+        "--initial-backoff-seconds",
+        type=int,
+        default=30,
+        help="Base backoff before restarting a failed worker",
+    )
+    ap.add_argument(
+        "--max-backoff-seconds",
+        type=int,
+        default=15 * 60,
+        help="Max backoff between restarts per worker",
+    )
 
-    ap.add_argument("--once", action="store_true", default=False, help="Print a single decision and exit")
+    ap.add_argument(
+        "--once", action="store_true", default=False, help="Print a single decision and exit"
+    )
     args = ap.parse_args()
 
     db_dir = Path(args.db_dir).expanduser().resolve()
-    plan_path = Path(args.plan_file).expanduser().resolve() if args.plan_file else (db_dir / "build_plan.json")
+    plan_path = (
+        Path(args.plan_file).expanduser().resolve()
+        if args.plan_file
+        else (db_dir / "build_plan.json")
+    )
 
     if not plan_path.exists():
         raise SystemExit(f"Plan file not found: {plan_path}")

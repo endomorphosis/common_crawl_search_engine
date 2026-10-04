@@ -9,7 +9,9 @@ import pytest
 def test_mcp_tools_include_orchestrator():
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -41,7 +43,9 @@ def test_orchestrator_settings_round_trip(tmp_path: Path, monkeypatch: pytest.Mo
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -96,7 +100,12 @@ def test_orchestrator_settings_round_trip(tmp_path: Path, monkeypatch: pytest.Mo
     # Get
     r2 = c.post(
         "/mcp",
-        json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "orchestrator_settings_get", "arguments": {}}},
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "orchestrator_settings_get", "arguments": {}},
+        },
     )
     assert r2.status_code == 200
     out2 = r2.json()["result"]
@@ -115,7 +124,9 @@ def test_orchestrator_job_plan_returns_cmd(tmp_path: Path, monkeypatch: pytest.M
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -130,7 +141,10 @@ def test_orchestrator_job_plan_returns_cmd(tmp_path: Path, monkeypatch: pytest.M
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
-            "params": {"name": "orchestrator_job_plan", "arguments": {"mode": "download_only", "filter": "2024-10", "workers": 2}},
+            "params": {
+                "name": "orchestrator_job_plan",
+                "arguments": {"mode": "download_only", "filter": "2024-10", "workers": 2},
+            },
         },
     )
     assert r.status_code == 200
@@ -139,16 +153,22 @@ def test_orchestrator_job_plan_returns_cmd(tmp_path: Path, monkeypatch: pytest.M
     assert "common_crawl_search_engine.ccindex.cc_pipeline_orchestrator" in " ".join(planned["cmd"])
 
     cmd_str = " ".join(planned["cmd"])
-    assert "--build-domain-rowgroup-index" in cmd_str or "--no-build-domain-rowgroup-index" in cmd_str
+    assert (
+        "--build-domain-rowgroup-index" in cmd_str or "--no-build-domain-rowgroup-index" in cmd_str
+    )
     assert "--domain-rowgroup-index-batch-size" in cmd_str
 
 
-def test_orchestrator_job_plan_allows_rowgroup_index_overrides(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_orchestrator_job_plan_allows_rowgroup_index_overrides(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     monkeypatch.setenv("CCINDEX_ORCHESTRATOR_SETTINGS_PATH", str(tmp_path / "orch_settings.json"))
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -192,7 +212,9 @@ def test_dashboard_index_page_renders(tmp_path: Path, monkeypatch: pytest.Monkey
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -214,13 +236,15 @@ def test_collinfo_update_and_list_round_trip(tmp_path: Path, monkeypatch: pytest
     # Provide a local collinfo payload.
     src = tmp_path / "src_collinfo.json"
     src.write_text(
-        "[\n  {\"id\": \"CC-MAIN-2099-01\", \"name\": \"Test Crawl\"}\n]\n",
+        '[\n  {"id": "CC-MAIN-2099-01", "name": "Test Crawl"}\n]\n',
         encoding="utf-8",
     )
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -266,7 +290,9 @@ def test_mcp_batch_tools_list_and_orchestrator_get(tmp_path: Path, monkeypatch: 
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient

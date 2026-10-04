@@ -133,11 +133,7 @@ def run_dashboard_analysis(
                 return False
 
             # 2) Search
-            search_url = (
-                f"{base_url}/?q={domain}"
-                f"&max_matches=10"
-                f"&parquet_root={parquet_root}"
-            )
+            search_url = f"{base_url}/?q={domain}&max_matches=10&parquet_root={parquet_root}"
             page.goto(search_url, wait_until="domcontentloaded")
             page.wait_for_selector("#status", timeout=int(timeout_s * 1000))
             page.wait_for_function(

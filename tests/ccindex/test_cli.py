@@ -13,7 +13,7 @@ def test_search_domain_help():
         [sys.executable, "-m", "common_crawl_search_engine.ccindex.search_cc_domain", "--help"],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
     assert result.returncode == 0
     assert "domain" in result.stdout.lower()
@@ -22,10 +22,15 @@ def test_search_domain_help():
 def test_build_pointer_help():
     """Test that build_cc_pointer_duckdb displays help."""
     result = subprocess.run(
-        [sys.executable, "-m", "common_crawl_search_engine.ccindex.build_cc_pointer_duckdb", "--help"],
+        [
+            sys.executable,
+            "-m",
+            "common_crawl_search_engine.ccindex.build_cc_pointer_duckdb",
+            "--help",
+        ],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
     assert result.returncode == 0
     assert "duckdb" in result.stdout.lower()
@@ -34,10 +39,15 @@ def test_build_pointer_help():
 def test_orchestrator_help():
     """Test that cc_pipeline_orchestrator displays help."""
     result = subprocess.run(
-        [sys.executable, "-m", "common_crawl_search_engine.ccindex.cc_pipeline_orchestrator", "--help"],
+        [
+            sys.executable,
+            "-m",
+            "common_crawl_search_engine.ccindex.cc_pipeline_orchestrator",
+            "--help",
+        ],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
     assert result.returncode == 0
     assert "orchestrat" in result.stdout.lower()
@@ -46,10 +56,15 @@ def test_orchestrator_help():
 def test_validate_collection_help():
     """Test that validate_collection_completeness displays help."""
     result = subprocess.run(
-        [sys.executable, "-m", "common_crawl_search_engine.ccindex.validate_collection_completeness", "--help"],
+        [
+            sys.executable,
+            "-m",
+            "common_crawl_search_engine.ccindex.validate_collection_completeness",
+            "--help",
+        ],
         capture_output=True,
         text=True,
-        timeout=10
+        timeout=10,
     )
     assert result.returncode == 0
     assert "validate" in result.stdout.lower() or "collection" in result.stdout.lower()

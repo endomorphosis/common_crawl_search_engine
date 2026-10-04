@@ -150,11 +150,31 @@ def _count_urls_in_parquet_shards(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--duckdb-dir", required=True, type=str, help="DuckDB file or directory containing cc_domain_shards")
-    ap.add_argument("--parquet-root", required=True, type=str, help="Root folder containing pointer Parquet shards")
-    ap.add_argument("--domain", required=True, type=str, help="Domain or URL (e.g. example.gov or https://example.gov)")
+    ap.add_argument(
+        "--duckdb-dir",
+        required=True,
+        type=str,
+        help="DuckDB file or directory containing cc_domain_shards",
+    )
+    ap.add_argument(
+        "--parquet-root",
+        required=True,
+        type=str,
+        help="Root folder containing pointer Parquet shards",
+    )
+    ap.add_argument(
+        "--domain",
+        required=True,
+        type=str,
+        help="Domain or URL (e.g. example.gov or https://example.gov)",
+    )
     ap.add_argument("--limit-shards", type=int, default=None, help="Only print first N shard paths")
-    ap.add_argument("--count-urls", action="store_true", default=False, help="Also count matching URLs across those shards")
+    ap.add_argument(
+        "--count-urls",
+        action="store_true",
+        default=False,
+        help="Also count matching URLs across those shards",
+    )
     ap.add_argument(
         "--count-limit",
         type=int,
@@ -181,11 +201,15 @@ def main() -> int:
     if not prefix:
         raise SystemExit("Could not compute host_rev for domain")
 
-    db_files = _iter_duckdb_files(duckdb_dir, include_partitioned=bool(args.include_partitioned_dbs))
+    db_files = _iter_duckdb_files(
+        duckdb_dir, include_partitioned=bool(args.include_partitioned_dbs)
+    )
     if not db_files:
         raise SystemExit(f"No DuckDB files found under: {duckdb_dir}")
 
-    relpaths, scanned, with_table = _distinct_parquet_relpaths_for_domain(db_files, host_rev_prefix=prefix)
+    relpaths, scanned, with_table = _distinct_parquet_relpaths_for_domain(
+        db_files, host_rev_prefix=prefix
+    )
 
     # Map to absolute Parquet paths.
     parquet_paths = sorted({(parquet_root / r).resolve() for r in relpaths})
@@ -203,7 +227,9 @@ def main() -> int:
         print(f"{p}  exists={exists}  bytes={size}")
 
     if args.count_urls:
-        total = _count_urls_in_parquet_shards(parquet_paths, host_rev_prefix=prefix, limit_total=args.count_limit)
+        total = _count_urls_in_parquet_shards(
+            parquet_paths, host_rev_prefix=prefix, limit_total=args.count_limit
+        )
         print(f"matching_urls={total}")
 
     return 0

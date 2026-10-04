@@ -56,7 +56,7 @@ def check_if_sorted(parquet_file: Path, sample_size: int = 1000) -> Tuple[bool, 
 
         for i in range(len(sample) - 1):
             if sample[i] > sample[i + 1]:
-                return False, f"Unsorted within row group 0: {sample[i]} > {sample[i+1]}"
+                return False, f"Unsorted within row group 0: {sample[i]} > {sample[i + 1]}"
 
         # Check across row groups
         if pf.metadata.num_row_groups > 1:
@@ -71,7 +71,7 @@ def check_if_sorted(parquet_file: Path, sample_size: int = 1000) -> Tuple[bool, 
                     if last_val > first_val:
                         return (
                             False,
-                            f"Unsorted between row groups {rg_idx-1} and {rg_idx}: {last_val} > {first_val}",
+                            f"Unsorted between row groups {rg_idx - 1} and {rg_idx}: {last_val} > {first_val}",
                         )
 
                     last_val = vals[-1]
@@ -107,7 +107,7 @@ def sort_parquet_file(
                 SELECT * FROM read_parquet('{input_file}')
                 ORDER BY host_rev, url, ts
             )
-            TO '{output_file}' ({', '.join(copy_opts)})
+            TO '{output_file}' ({", ".join(copy_opts)})
         """
         )
         con.close()
@@ -119,7 +119,9 @@ def sort_parquet_file(
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check and sort all parquet files")
-    ap.add_argument("--parquet-root", required=True, type=str, help="Root directory of parquet files")
+    ap.add_argument(
+        "--parquet-root", required=True, type=str, help="Root directory of parquet files"
+    )
     ap.add_argument("--sort-unsorted", action="store_true", help="Sort any unsorted files found")
     ap.add_argument("--verify-only", action="store_true", help="Only verify, don't sort")
     ap.add_argument(
@@ -236,7 +238,9 @@ def main() -> int:
             sorted_tmp = unsorted_file.with_suffix(".parquet.sorted.tmp")
             final_path = _marked_name(unsorted_file) if args.mark_sorted else unsorted_file
 
-            if sort_parquet_file(unsorted_file, sorted_tmp, row_group_size=int(args.row_group_size)):
+            if sort_parquet_file(
+                unsorted_file, sorted_tmp, row_group_size=int(args.row_group_size)
+            ):
                 # Verify it's now sorted
                 is_sorted, reason = check_if_sorted(sorted_tmp)
 

@@ -30,9 +30,7 @@ def _require_pyarrow():
     try:
         import pyarrow.parquet as pq  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "pyarrow is required to read Parquet pointers (install pyarrow)"
-        ) from e
+        raise RuntimeError("pyarrow is required to read Parquet pointers (install pyarrow)") from e
     return pq
 
 
@@ -95,8 +93,15 @@ def _expand_slices_to_min_size(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Build a canonical WARC slice plan from pointer JSONL/Parquet")
-    ap.add_argument("--cache-root", type=Path, default=None, help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)")
+    ap = argparse.ArgumentParser(
+        description="Build a canonical WARC slice plan from pointer JSONL/Parquet"
+    )
+    ap.add_argument(
+        "--cache-root",
+        type=Path,
+        default=None,
+        help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)",
+    )
     ap.add_argument(
         "--run-id",
         type=str,
@@ -109,8 +114,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         required=True,
         help="Pointer file (.jsonl or .parquet). Must contain warc_filename, warc_offset, warc_length.",
     )
-    ap.add_argument("--out-slice-plan-jsonl", type=Path, default=None, help="Output slice plan JSONL")
-    ap.add_argument("--out-slice-members-jsonl", type=Path, default=None, help="Output slice members JSONL")
+    ap.add_argument(
+        "--out-slice-plan-jsonl", type=Path, default=None, help="Output slice plan JSONL"
+    )
+    ap.add_argument(
+        "--out-slice-members-jsonl", type=Path, default=None, help="Output slice members JSONL"
+    )
     ap.add_argument("--max-slice-bytes", type=int, default=64_000_000)
     ap.add_argument("--max-gap-bytes", type=int, default=1_000_000)
     ap.add_argument("--min-slice-bytes", type=int, default=1_000_000)
@@ -141,7 +150,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             run_id = ""
     if not run_id:
         try:
-            latest = (cache_root / "slice_indexes" / "LATEST.txt").read_text(encoding="utf-8").strip()
+            latest = (
+                (cache_root / "slice_indexes" / "LATEST.txt").read_text(encoding="utf-8").strip()
+            )
             if latest:
                 run_id = latest
         except Exception:
@@ -168,7 +179,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out_members.write_text("", encoding="utf-8")
 
     try:
-        (cache_root / "slice_indexes" / "LATEST.txt").write_text(str(run_id) + "\n", encoding="utf-8")
+        (cache_root / "slice_indexes" / "LATEST.txt").write_text(
+            str(run_id) + "\n", encoding="utf-8"
+        )
         (run_dir / "meta.json").write_text(
             json.dumps(
                 {
@@ -275,9 +288,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     member_count += 1
 
             if int(args.progress_every_warcs) > 0 and i % int(args.progress_every_warcs) == 0:
-                sys.stderr.write(f"progress warcs={i}/{len(warc_files)} slices={slice_count} members={member_count}\n")
+                sys.stderr.write(
+                    f"progress warcs={i}/{len(warc_files)} slices={slice_count} members={member_count}\n"
+                )
 
-        sys.stderr.write(f"ok=1 warcs={len(warc_files)} slices={slice_count} members={member_count}\n")
+        sys.stderr.write(
+            f"ok=1 warcs={len(warc_files)} slices={slice_count} members={member_count}\n"
+        )
     finally:
         plan_f.close()
         mem_f.close()

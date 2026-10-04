@@ -106,11 +106,7 @@ def test_dashboard_waybackish_flow_screenshots(tmp_path: Path) -> None:
 
                 # 2) Perform search via query params (more deterministic than typing)
                 domain = os.getenv("DASHBOARD_E2E_DOMAIN") or "iana.org"
-                search_url = (
-                    f"{base_url}/?q={domain}"
-                    f"&max_matches=5"
-                    f"&parquet_root={parquet_root}"
-                )
+                search_url = f"{base_url}/?q={domain}&max_matches=5&parquet_root={parquet_root}"
                 page.goto(search_url, wait_until="domcontentloaded")
 
                 # Status badge should resolve to ok or error.
@@ -133,7 +129,7 @@ def test_dashboard_waybackish_flow_screenshots(tmp_path: Path) -> None:
                     # Save a little more context to help debug without opening screenshots.
                     (tmp_path / "page_text.txt").write_text(page.inner_text("body"))
                     pytest.fail(
-                        f"Search reported error (see screenshots in {shots_dir}, context in {tmp_path/'page_text.txt'})"
+                        f"Search reported error (see screenshots in {shots_dir}, context in {tmp_path / 'page_text.txt'})"
                     )
 
                 # 3) Click first 'view record' link and ensure iframe render exists.
@@ -147,7 +143,9 @@ def test_dashboard_waybackish_flow_screenshots(tmp_path: Path) -> None:
                 # Wait until the record page actually attempts the MCP fetch.
                 page.wait_for_event(
                     "response",
-                    predicate=lambda resp: resp.url.endswith("/mcp") and resp.request.method == "POST",
+                    predicate=lambda resp: (
+                        resp.url.endswith("/mcp") and resp.request.method == "POST"
+                    ),
                     timeout=60000,
                 )
 
@@ -170,7 +168,7 @@ def test_dashboard_waybackish_flow_screenshots(tmp_path: Path) -> None:
                 if "error" in rec_status:
                     (tmp_path / "record_page_text.txt").write_text(page.inner_text("body"))
                     pytest.fail(
-                        f"Record fetch reported error (see {shots_dir}, status in {tmp_path/'rec_status.txt'})"
+                        f"Record fetch reported error (see {shots_dir}, status in {tmp_path / 'rec_status.txt'})"
                     )
 
                 page.wait_for_selector("iframe#recFrame", timeout=20000, state="attached")

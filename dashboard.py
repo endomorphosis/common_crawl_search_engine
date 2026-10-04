@@ -231,7 +231,9 @@ def create_app(master_db: Path) -> Any:
         )
 
     # Optional CORS for remote JS SDK usage.
-    cors_origins_raw = (os.environ.get("CCINDEX_CORS_ORIGINS") or os.environ.get("CCSEARCH_CORS_ORIGINS") or "").strip()
+    cors_origins_raw = (
+        os.environ.get("CCINDEX_CORS_ORIGINS") or os.environ.get("CCSEARCH_CORS_ORIGINS") or ""
+    ).strip()
     cors_allow_origins: list[str] = []
     cors_allow_credentials = True
     if cors_origins_raw:
@@ -253,58 +255,63 @@ def create_app(master_db: Path) -> Any:
     app = FastAPI(title="Common Crawl Search Engine Dashboard", version="0.1")
 
     class ForwardedPrefixMiddleware:
-      """Honor reverse-proxy prefix headers (X-Forwarded-Prefix / X-Script-Name).
+        """Honor reverse-proxy prefix headers (X-Forwarded-Prefix / X-Script-Name).
 
-      If the proxy forwards the prefix *and* also leaves it in the URL path,
-      we strip it so routes like `/mcp` still match.
-      """
+        If the proxy forwards the prefix *and* also leaves it in the URL path,
+        we strip it so routes like `/mcp` still match.
+        """
 
-      def __init__(self, inner_app: Any) -> None:
-        self.app = inner_app
+        def __init__(self, inner_app: Any) -> None:
+            self.app = inner_app
 
-      async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
-        if scope.get("type") not in ("http", "websocket"):
-          await self.app(scope, receive, send)
-          return
+        async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+            if scope.get("type") not in ("http", "websocket"):
+                await self.app(scope, receive, send)
+                return
 
-        headers = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in (scope.get("headers") or [])}
-        prefix = (headers.get("x-forwarded-prefix") or headers.get("x-script-name") or "").strip()
-        if not prefix:
-          await self.app(scope, receive, send)
-          return
+            headers = {
+                k.decode("latin-1").lower(): v.decode("latin-1")
+                for k, v in (scope.get("headers") or [])
+            }
+            prefix = (
+                headers.get("x-forwarded-prefix") or headers.get("x-script-name") or ""
+            ).strip()
+            if not prefix:
+                await self.app(scope, receive, send)
+                return
 
-        if not prefix.startswith("/"):
-          prefix = "/" + prefix
-        if prefix != "/" and prefix.endswith("/"):
-          prefix = prefix[:-1]
+            if not prefix.startswith("/"):
+                prefix = "/" + prefix
+            if prefix != "/" and prefix.endswith("/"):
+                prefix = prefix[:-1]
 
-        new_scope = dict(scope)
-        new_scope["root_path"] = prefix
+            new_scope = dict(scope)
+            new_scope["root_path"] = prefix
 
-        path = str(new_scope.get("path") or "")
-        if path.startswith(prefix):
-          stripped = path[len(prefix) :]
-          new_scope["path"] = stripped if stripped else "/"
+            path = str(new_scope.get("path") or "")
+            if path.startswith(prefix):
+                stripped = path[len(prefix) :]
+                new_scope["path"] = stripped if stripped else "/"
 
-        await self.app(new_scope, receive, send)
+            await self.app(new_scope, receive, send)
 
     app.add_middleware(ForwardedPrefixMiddleware)
 
     # Brave web search enforces a per-request max `count` (commonly 20). Keep
     # UI/tool defaults in-bounds to avoid Brave HTTP 422 validation errors.
     try:
-      from common_crawl_search_engine.ccsearch.brave_search import brave_web_search_max_count
+        from common_crawl_search_engine.ccsearch.brave_search import brave_web_search_max_count
 
-      brave_max_count = int(brave_web_search_max_count())
+        brave_max_count = int(brave_web_search_max_count())
     except Exception:
-      brave_max_count = 20
+        brave_max_count = 20
     brave_max_count = max(1, int(brave_max_count))
 
     def _base_path(request: Request) -> str:
-      root = str(getattr(request, "scope", {}).get("root_path") or "").strip()
-      if root != "/" and root.endswith("/"):
-        root = root[:-1]
-      return root
+        root = str(getattr(request, "scope", {}).get("root_path") or "").strip()
+        if root != "/" and root.endswith("/"):
+            root = root[:-1]
+        return root
 
     if cors_allow_origins:
         try:
@@ -322,86 +329,86 @@ def create_app(master_db: Path) -> Any:
             pass
 
     def _settings_path() -> Path:
-      state_dir = Path("state")
-      state_dir.mkdir(parents=True, exist_ok=True)
-      return state_dir / "dashboard_settings.json"
+        state_dir = Path("state")
+        state_dir.mkdir(parents=True, exist_ok=True)
+        return state_dir / "dashboard_settings.json"
 
     def _default_settings() -> Dict[str, Any]:
-      return {
-        "default_cache_mode": "range",  # range | auto | full
-        "default_max_bytes": 2_000_000,
-        "default_max_preview_chars": 80_000,
-        "range_cache_max_bytes": 2_000_000_000,
-        "range_cache_max_item_bytes": 25_000_000,
-        "full_warc_cache_dir": None,
-        "full_warc_max_bytes": 5_000_000_000,
-        "full_warc_cache_max_total_bytes": 0,
-        "brave_search_api_key": None,
-        # Brave URL->CCIndex resolution knobs (used by ccindex.api via env vars).
-        "brave_resolve_strategy": "meta_parallel",  # meta_parallel | domain_url_join_parallel
-        "brave_resolve_workers": None,  # null/None means auto
-        "brave_resolve_relpath_workers": None,  # BRAVE_RESOLVE_RELPATH_WORKERS (blank = resolver default)
-      }
+        return {
+            "default_cache_mode": "range",  # range | auto | full
+            "default_max_bytes": 2_000_000,
+            "default_max_preview_chars": 80_000,
+            "range_cache_max_bytes": 2_000_000_000,
+            "range_cache_max_item_bytes": 25_000_000,
+            "full_warc_cache_dir": None,
+            "full_warc_max_bytes": 5_000_000_000,
+            "full_warc_cache_max_total_bytes": 0,
+            "brave_search_api_key": None,
+            # Brave URL->CCIndex resolution knobs (used by ccindex.api via env vars).
+            "brave_resolve_strategy": "meta_parallel",  # meta_parallel | domain_url_join_parallel
+            "brave_resolve_workers": None,  # null/None means auto
+            "brave_resolve_relpath_workers": None,  # BRAVE_RESOLVE_RELPATH_WORKERS (blank = resolver default)
+        }
 
     def _apply_brave_resolve_env_from_settings(settings: Dict[str, Any]) -> None:
-      """Apply Brave resolve settings to the current process environment."""
+        """Apply Brave resolve settings to the current process environment."""
 
-      try:
-        strat = str(settings.get("brave_resolve_strategy") or "meta_parallel").strip()
-      except Exception:
-        strat = "meta_parallel"
-      if strat not in {"meta_parallel", "domain_url_join_parallel"}:
-        strat = "meta_parallel"
+        try:
+            strat = str(settings.get("brave_resolve_strategy") or "meta_parallel").strip()
+        except Exception:
+            strat = "meta_parallel"
+        if strat not in {"meta_parallel", "domain_url_join_parallel"}:
+            strat = "meta_parallel"
 
-      os.environ["BRAVE_RESOLVE_STRATEGY"] = strat
+        os.environ["BRAVE_RESOLVE_STRATEGY"] = strat
 
-      v = settings.get("brave_resolve_workers")
-      workers: Optional[int] = None
-      try:
-        if v is None or str(v).strip() == "":
-          workers = None
+        v = settings.get("brave_resolve_workers")
+        workers: Optional[int] = None
+        try:
+            if v is None or str(v).strip() == "":
+                workers = None
+            else:
+                workers = int(v)
+        except Exception:
+            workers = None
+
+        if workers is not None and workers > 0:
+            os.environ["BRAVE_RESOLVE_WORKERS"] = str(int(workers))
         else:
-          workers = int(v)
-      except Exception:
-        workers = None
+            os.environ.pop("BRAVE_RESOLVE_WORKERS", None)
 
-      if workers is not None and workers > 0:
-        os.environ["BRAVE_RESOLVE_WORKERS"] = str(int(workers))
-      else:
-        os.environ.pop("BRAVE_RESOLVE_WORKERS", None)
+        v = settings.get("brave_resolve_relpath_workers")
+        rel_workers: Optional[int] = None
+        try:
+            if v is None or str(v).strip() == "":
+                rel_workers = None
+            else:
+                rel_workers = int(v)
+        except Exception:
+            rel_workers = None
 
-      v = settings.get("brave_resolve_relpath_workers")
-      rel_workers: Optional[int] = None
-      try:
-        if v is None or str(v).strip() == "":
-          rel_workers = None
+        if rel_workers is not None and rel_workers > 0:
+            os.environ["BRAVE_RESOLVE_RELPATH_WORKERS"] = str(int(rel_workers))
         else:
-          rel_workers = int(v)
-      except Exception:
-        rel_workers = None
-
-      if rel_workers is not None and rel_workers > 0:
-        os.environ["BRAVE_RESOLVE_RELPATH_WORKERS"] = str(int(rel_workers))
-      else:
-        os.environ.pop("BRAVE_RESOLVE_RELPATH_WORKERS", None)
+            os.environ.pop("BRAVE_RESOLVE_RELPATH_WORKERS", None)
 
     def _load_settings() -> Dict[str, Any]:
-      p = _settings_path()
-      if not p.exists():
-        return _default_settings()
-      try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-          return _default_settings()
-        out = _default_settings()
-        out.update({k: data.get(k) for k in out.keys()})
-        return out
-      except Exception:
-        return _default_settings()
+        p = _settings_path()
+        if not p.exists():
+            return _default_settings()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return _default_settings()
+            out = _default_settings()
+            out.update({k: data.get(k) for k in out.keys()})
+            return out
+        except Exception:
+            return _default_settings()
 
     def _save_settings(settings: Dict[str, Any]) -> None:
-      p = _settings_path()
-      p.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        p = _settings_path()
+        p.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     # Support multiple layouts during re-org. We serve the first static dir we find.
     static_candidates = [
@@ -416,622 +423,726 @@ def create_app(master_db: Path) -> Any:
 
     @app.post("/mcp")
     async def mcp(request: Request) -> Response:
-      payload = await request.json()
+        payload = await request.json()
 
-      tools = [
-        {
-          "name": "search_domain_meta",
-          "description": "Search CCIndex via meta-indexes for a domain",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "domain": {"type": "string"},
-              "year": {"type": ["string", "null"]},
-              "parquet_root": {"type": "string"},
-              "master_db": {"type": "string"},
-              "max_matches": {"type": "integer"},
-              "hf_remote_meta": {"type": ["boolean", "null"]},
-              "hf_meta_index_dataset": {"type": ["string", "null"]},
-              "hf_pointer_dataset": {"type": ["string", "null"]},
-              "hf_revision": {"type": ["string", "null"]},
+        tools = [
+            {
+                "name": "search_domain_meta",
+                "description": "Search CCIndex via meta-indexes for a domain",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "domain": {"type": "string"},
+                        "year": {"type": ["string", "null"]},
+                        "parquet_root": {"type": "string"},
+                        "master_db": {"type": "string"},
+                        "max_matches": {"type": "integer"},
+                        "hf_remote_meta": {"type": ["boolean", "null"]},
+                        "hf_meta_index_dataset": {"type": ["string", "null"]},
+                        "hf_pointer_dataset": {"type": ["string", "null"]},
+                        "hf_revision": {"type": ["string", "null"]},
+                    },
+                    "required": ["domain"],
+                },
             },
-            "required": ["domain"],
-          },
-        },
-        {
-          "name": "fetch_warc_record",
-          "description": "Fetch a WARC record (range or cached full WARC) and optionally decode a text preview",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "warc_filename": {"type": "string"},
-              "warc_offset": {"type": "integer"},
-              "warc_length": {"type": "integer"},
-              "prefix": {"type": "string"},
-              "max_bytes": {"type": "integer"},
-              "max_preview_chars": {"type": "integer"},
-              "cache_mode": {"type": "string", "enum": ["range", "auto", "full"]},
-              "full_warc_cache_dir": {"type": ["string", "null"]},
-              "full_warc_max_bytes": {"type": "integer"},
-              "full_warc_cache_max_total_bytes": {"type": "integer"},
-              "range_cache_max_bytes": {"type": "integer"},
-              "range_cache_max_item_bytes": {"type": "integer"},
+            {
+                "name": "fetch_warc_record",
+                "description": "Fetch a WARC record (range or cached full WARC) and optionally decode a text preview",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "warc_filename": {"type": "string"},
+                        "warc_offset": {"type": "integer"},
+                        "warc_length": {"type": "integer"},
+                        "prefix": {"type": "string"},
+                        "max_bytes": {"type": "integer"},
+                        "max_preview_chars": {"type": "integer"},
+                        "cache_mode": {"type": "string", "enum": ["range", "auto", "full"]},
+                        "full_warc_cache_dir": {"type": ["string", "null"]},
+                        "full_warc_max_bytes": {"type": "integer"},
+                        "full_warc_cache_max_total_bytes": {"type": "integer"},
+                        "range_cache_max_bytes": {"type": "integer"},
+                        "range_cache_max_item_bytes": {"type": "integer"},
+                    },
+                    "required": ["warc_filename", "warc_offset", "warc_length"],
+                },
             },
-            "required": ["warc_filename", "warc_offset", "warc_length"],
-          },
-        },
-        {
-          "name": "list_collections",
-          "description": "List registered collections from master meta-index",
-          "inputSchema": {"type": "object", "properties": {"year": {"type": ["string", "null"]}}},
-        },
-        {
-          "name": "brave_search_ccindex",
-          "description": "Brave web search + resolve result URLs to CCIndex pointers (no live-site visits)",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "query": {"type": "string"},
-              "count": {"type": "integer", "minimum": 1, "maximum": int(brave_max_count)},
-              "offset": {"type": "integer", "minimum": 0},
-              "year": {"type": ["string", "null"]},
-              "parquet_root": {"type": "string"},
+            {
+                "name": "list_collections",
+                "description": "List registered collections from master meta-index",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"year": {"type": ["string", "null"]}},
+                },
             },
-            "required": ["query"],
-          },
-        },
-        {
-          "name": "brave_cache_stats",
-          "description": "Return stats for the on-disk Brave Search cache",
-          "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-          "name": "brave_cache_clear",
-          "description": "Clear the on-disk Brave Search cache",
-          "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-          "name": "brave_resolve_cache_stats",
-          "description": "Return stats for the on-disk Brave->CCIndex resolve cache",
-          "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-          "name": "brave_resolve_cache_clear",
-          "description": "Clear the on-disk Brave->CCIndex resolve cache",
-          "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-          "name": "orchestrator_settings_get",
-          "description": "Get persisted ccindex orchestrator settings",
-          "inputSchema": {"type": "object", "properties": {}},
-        },
-        {
-          "name": "orchestrator_settings_set",
-          "description": "Update persisted ccindex orchestrator settings (partial update)",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "settings": {"type": "object"}
+            {
+                "name": "brave_search_ccindex",
+                "description": "Brave web search + resolve result URLs to CCIndex pointers (no live-site visits)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "count": {"type": "integer", "minimum": 1, "maximum": int(brave_max_count)},
+                        "offset": {"type": "integer", "minimum": 0},
+                        "year": {"type": ["string", "null"]},
+                        "parquet_root": {"type": "string"},
+                    },
+                    "required": ["query"],
+                },
             },
-            "required": ["settings"],
-          },
-        },
-        {
-          "name": "orchestrator_collection_status",
-          "description": "Return validator status for a collection (download/convert/sort/index completeness)",
-          "inputSchema": {
-            "type": "object",
-            "properties": {"collection": {"type": "string"}},
-            "required": ["collection"],
-          },
-        },
-        {
-          "name": "orchestrator_delete_collection_index",
-          "description": "Delete per-collection DuckDB index artifacts so the next run rebuilds",
-          "inputSchema": {
-            "type": "object",
-            "properties": {"collection": {"type": "string"}},
-            "required": ["collection"],
-          },
-        },
-        {
-          "name": "orchestrator_job_plan",
-          "description": "Plan the orchestrator subprocess command for a long-running job",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "mode": {"type": "string", "enum": ["pipeline", "download_only", "cleanup_only", "build_meta_indexes"]},
-              "filter": {"type": ["string", "null"]},
-              "workers": {"type": ["integer", "null"]},
-              "force_reindex": {"type": ["boolean", "null"]},
-              "cleanup_dry_run": {"type": ["boolean", "null"]},
-              "yes": {"type": ["boolean", "null"]},
-              "heartbeat_seconds": {"type": ["integer", "null"]},
-              "sort_workers": {"type": ["integer", "null"]},
-              "sort_memory_per_worker_gb": {"type": ["number", "null"]},
-              "sort_temp_dir": {"type": ["string", "null"]},
+            {
+                "name": "brave_cache_stats",
+                "description": "Return stats for the on-disk Brave Search cache",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "brave_cache_clear",
+                "description": "Clear the on-disk Brave Search cache",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "brave_resolve_cache_stats",
+                "description": "Return stats for the on-disk Brave->CCIndex resolve cache",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "brave_resolve_cache_clear",
+                "description": "Clear the on-disk Brave->CCIndex resolve cache",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "orchestrator_settings_get",
+                "description": "Get persisted ccindex orchestrator settings",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "orchestrator_settings_set",
+                "description": "Update persisted ccindex orchestrator settings (partial update)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"settings": {"type": "object"}},
+                    "required": ["settings"],
+                },
+            },
+            {
+                "name": "orchestrator_collection_status",
+                "description": "Return validator status for a collection (download/convert/sort/index completeness)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"collection": {"type": "string"}},
+                    "required": ["collection"],
+                },
+            },
+            {
+                "name": "orchestrator_delete_collection_index",
+                "description": "Delete per-collection DuckDB index artifacts so the next run rebuilds",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"collection": {"type": "string"}},
+                    "required": ["collection"],
+                },
+            },
+            {
+                "name": "orchestrator_job_plan",
+                "description": "Plan the orchestrator subprocess command for a long-running job",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": [
+                                "pipeline",
+                                "download_only",
+                                "cleanup_only",
+                                "build_meta_indexes",
+                            ],
+                        },
+                        "filter": {"type": ["string", "null"]},
+                        "workers": {"type": ["integer", "null"]},
+                        "force_reindex": {"type": ["boolean", "null"]},
+                        "cleanup_dry_run": {"type": ["boolean", "null"]},
+                        "yes": {"type": ["boolean", "null"]},
+                        "heartbeat_seconds": {"type": ["integer", "null"]},
+                        "sort_workers": {"type": ["integer", "null"]},
+                        "sort_memory_per_worker_gb": {"type": ["number", "null"]},
+                        "sort_temp_dir": {"type": ["string", "null"]},
+                        "build_domain_rowgroup_index": {"type": ["boolean", "null"]},
+                        "domain_rowgroup_index_root": {"type": ["string", "null"]},
+                        "domain_rowgroup_index_batch_size": {"type": ["integer", "null"]},
+                    },
+                    "required": ["mode"],
+                },
+            },
+            {
+                "name": "orchestrator_job_start",
+                "description": "Start a long-running orchestrator job in a background subprocess",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"planned": {"type": "object"}, "label": {"type": "string"}},
+                    "required": ["planned"],
+                },
+            },
+            {
+                "name": "orchestrator_job_stop",
+                "description": "Stop a running orchestrator job by PID",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"pid": {"type": "integer"}, "sig": {"type": "string"}},
+                    "required": ["pid"],
+                },
+            },
+            {
+                "name": "orchestrator_job_tail",
+                "description": "Tail the orchestrator job log",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"log_path": {"type": "string"}, "lines": {"type": "integer"}},
+                    "required": ["log_path"],
+                },
+            },
+            {
+                "name": "cc_collinfo_list",
+                "description": "List known Common Crawl collections from cached collinfo.json (or repo fallback)",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "prefer_cache": {"type": ["boolean", "null"]},
+                    },
+                },
+            },
+            {
+                "name": "cc_collinfo_update",
+                "description": "Refresh cached collinfo.json from the Common Crawl website",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": ["string", "null"]},
+                        "timeout_s": {"type": ["number", "null"]},
+                    },
+                },
+            },
+            {
+                "name": "orchestrator_collections_status",
+                "description": "Return validator status for many collections",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "collections": {"type": "array", "items": {"type": "string"}},
+                        "parallelism": {"type": ["integer", "null"]},
+                    },
+                    "required": ["collections"],
+                },
+            },
+            {
+                "name": "orchestrator_delete_collection_indexes",
+                "description": "Delete DuckDB index artifacts for multiple collections",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "collections": {"type": "array", "items": {"type": "string"}},
+                    },
+                    "required": ["collections"],
+                },
+            },
+            {
+                "name": "orchestrator_jobs_list",
+                "description": "List recent orchestrator jobs started from the dashboard/CLI",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"limit": {"type": ["integer", "null"]}},
+                },
+            },
+            {
+                "name": "orchestrator_job_status",
+                "description": "Get running/dead status and heuristic progress for a job",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "pid": {"type": ["integer", "null"]},
+                        "log_path": {"type": ["string", "null"]},
+                        "lines": {"type": ["integer", "null"]},
+                    },
+                },
+            },
+        ]
 
-              "build_domain_rowgroup_index": {"type": ["boolean", "null"]},
-              "domain_rowgroup_index_root": {"type": ["string", "null"]},
-              "domain_rowgroup_index_batch_size": {"type": ["integer", "null"]}
-            },
-            "required": ["mode"],
-          },
-        },
-        {
-          "name": "orchestrator_job_start",
-          "description": "Start a long-running orchestrator job in a background subprocess",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "planned": {"type": "object"},
-              "label": {"type": "string"}
-            },
-            "required": ["planned"],
-          },
-        },
-        {
-          "name": "orchestrator_job_stop",
-          "description": "Stop a running orchestrator job by PID",
-          "inputSchema": {
-            "type": "object",
-            "properties": {"pid": {"type": "integer"}, "sig": {"type": "string"}},
-            "required": ["pid"],
-          },
-        },
-        {
-          "name": "orchestrator_job_tail",
-          "description": "Tail the orchestrator job log",
-          "inputSchema": {
-            "type": "object",
-            "properties": {"log_path": {"type": "string"}, "lines": {"type": "integer"}},
-            "required": ["log_path"],
-          },
-        },
-        {
-          "name": "cc_collinfo_list",
-          "description": "List known Common Crawl collections from cached collinfo.json (or repo fallback)",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "prefer_cache": {"type": ["boolean", "null"]},
-            },
-          },
-        },
-        {
-          "name": "cc_collinfo_update",
-          "description": "Refresh cached collinfo.json from the Common Crawl website",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "url": {"type": ["string", "null"]},
-              "timeout_s": {"type": ["number", "null"]},
-            },
-          },
-        },
-        {
-          "name": "orchestrator_collections_status",
-          "description": "Return validator status for many collections",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "collections": {"type": "array", "items": {"type": "string"}},
-              "parallelism": {"type": ["integer", "null"]},
-            },
-            "required": ["collections"],
-          },
-        },
-        {
-          "name": "orchestrator_delete_collection_indexes",
-          "description": "Delete DuckDB index artifacts for multiple collections",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "collections": {"type": "array", "items": {"type": "string"}},
-            },
-            "required": ["collections"],
-          },
-        },
-        {
-          "name": "orchestrator_jobs_list",
-          "description": "List recent orchestrator jobs started from the dashboard/CLI",
-          "inputSchema": {
-            "type": "object",
-            "properties": {"limit": {"type": ["integer", "null"]}},
-          },
-        },
-        {
-          "name": "orchestrator_job_status",
-          "description": "Get running/dead status and heuristic progress for a job",
-          "inputSchema": {
-            "type": "object",
-            "properties": {
-              "pid": {"type": ["integer", "null"]},
-              "log_path": {"type": ["string", "null"]},
-              "lines": {"type": ["integer", "null"]},
-            },
-          },
-        },
-      ]
+        def _call_tool_sync(*, tool_name: str, tool_args: Dict[str, Any]) -> Any:
+            if tool_name == "search_domain_meta":
+                q = str(tool_args.get("domain") or "")
+                year = tool_args.get("year")
+                parquet_root = Path(
+                    str(tool_args.get("parquet_root") or "/storage/ccindex_parquet")
+                )
+                master_db_arg = Path(str(tool_args.get("master_db") or str(master_db)))
+                max_matches = int(tool_args.get("max_matches") or 200)
+                hf_remote_meta = tool_args.get("hf_remote_meta")
+                hf_meta_index_dataset = tool_args.get("hf_meta_index_dataset")
+                hf_pointer_dataset = tool_args.get("hf_pointer_dataset")
+                hf_revision = tool_args.get("hf_revision")
 
-      def _call_tool_sync(*, tool_name: str, tool_args: Dict[str, Any]) -> Any:
-        if tool_name == "search_domain_meta":
-          q = str(tool_args.get("domain") or "")
-          year = tool_args.get("year")
-          parquet_root = Path(str(tool_args.get("parquet_root") or "/storage/ccindex_parquet"))
-          master_db_arg = Path(str(tool_args.get("master_db") or str(master_db)))
-          max_matches = int(tool_args.get("max_matches") or 200)
-          hf_remote_meta = tool_args.get("hf_remote_meta")
-          hf_meta_index_dataset = tool_args.get("hf_meta_index_dataset")
-          hf_pointer_dataset = tool_args.get("hf_pointer_dataset")
-          hf_revision = tool_args.get("hf_revision")
+                res = api.search_domain_via_meta_indexes(
+                    q,
+                    parquet_root=parquet_root,
+                    master_db=master_db_arg,
+                    year=str(year) if year else None,
+                    max_matches=max_matches,
+                    hf_remote_meta=(bool(hf_remote_meta) if hf_remote_meta is not None else None),
+                    hf_meta_index_dataset=(
+                        str(hf_meta_index_dataset) if hf_meta_index_dataset else None
+                    ),
+                    hf_pointer_dataset=(str(hf_pointer_dataset) if hf_pointer_dataset else None),
+                    hf_revision=(str(hf_revision) if hf_revision else None),
+                )
+                return {
+                    "meta_source": res.meta_source,
+                    "collections_considered": res.collections_considered,
+                    "emitted": res.emitted,
+                    "elapsed_s": res.elapsed_s,
+                    "records": res.records,
+                }
 
-          res = api.search_domain_via_meta_indexes(
-            q,
-            parquet_root=parquet_root,
-            master_db=master_db_arg,
-            year=str(year) if year else None,
-            max_matches=max_matches,
-            hf_remote_meta=(bool(hf_remote_meta) if hf_remote_meta is not None else None),
-            hf_meta_index_dataset=(str(hf_meta_index_dataset) if hf_meta_index_dataset else None),
-            hf_pointer_dataset=(str(hf_pointer_dataset) if hf_pointer_dataset else None),
-            hf_revision=(str(hf_revision) if hf_revision else None),
-          )
-          return {
-            "meta_source": res.meta_source,
-            "collections_considered": res.collections_considered,
-            "emitted": res.emitted,
-            "elapsed_s": res.elapsed_s,
-            "records": res.records,
-          }
+            if tool_name == "fetch_warc_record":
+                s = _load_settings()
+                max_bytes = int(
+                    tool_args.get("max_bytes") or int(s.get("default_max_bytes") or 2_000_000)
+                )
+                max_preview_chars = int(
+                    tool_args.get("max_preview_chars")
+                    or int(s.get("default_max_preview_chars") or 80_000)
+                )
 
-        if tool_name == "fetch_warc_record":
-          s = _load_settings()
-          max_bytes = int(tool_args.get("max_bytes") or int(s.get("default_max_bytes") or 2_000_000))
-          max_preview_chars = int(
-            tool_args.get("max_preview_chars") or int(s.get("default_max_preview_chars") or 80_000)
-          )
+                range_cache_max_bytes = int(
+                    tool_args.get("range_cache_max_bytes")
+                    or int(s.get("range_cache_max_bytes") or 2_000_000_000)
+                )
+                range_cache_max_item_bytes = int(
+                    tool_args.get("range_cache_max_item_bytes")
+                    or int(s.get("range_cache_max_item_bytes") or 25_000_000)
+                )
+                full_warc_cache_max_total_bytes = int(
+                    tool_args.get("full_warc_cache_max_total_bytes")
+                    or int(s.get("full_warc_cache_max_total_bytes") or 0)
+                )
 
-          range_cache_max_bytes = int(
-            tool_args.get("range_cache_max_bytes") or int(s.get("range_cache_max_bytes") or 2_000_000_000)
-          )
-          range_cache_max_item_bytes = int(
-            tool_args.get("range_cache_max_item_bytes")
-            or int(s.get("range_cache_max_item_bytes") or 25_000_000)
-          )
-          full_warc_cache_max_total_bytes = int(
-            tool_args.get("full_warc_cache_max_total_bytes")
-            or int(s.get("full_warc_cache_max_total_bytes") or 0)
-          )
+                fetch, source, local_path = api.fetch_warc_record(
+                    warc_filename=str(tool_args.get("warc_filename") or ""),
+                    warc_offset=int(tool_args.get("warc_offset") or 0),
+                    warc_length=int(tool_args.get("warc_length") or 0),
+                    prefix=str(tool_args.get("prefix") or "https://data.commoncrawl.org/"),
+                    max_bytes=max_bytes,
+                    decode_gzip_text=True,
+                    max_preview_chars=max_preview_chars,
+                    cache_mode=str(
+                        tool_args.get("cache_mode") or str(s.get("default_cache_mode") or "range")
+                    ),
+                    range_cache_max_bytes=range_cache_max_bytes,
+                    range_cache_max_item_bytes=range_cache_max_item_bytes,
+                    full_warc_cache_dir=(
+                        Path(str(tool_args.get("full_warc_cache_dir")))
+                        if tool_args.get("full_warc_cache_dir")
+                        else (
+                            Path(str(s.get("full_warc_cache_dir")))
+                            if s.get("full_warc_cache_dir")
+                            else None
+                        )
+                    ),
+                    full_warc_max_bytes=int(
+                        tool_args.get("full_warc_max_bytes")
+                        or int(s.get("full_warc_max_bytes") or 5_000_000_000)
+                    ),
+                    full_warc_cache_max_total_bytes=full_warc_cache_max_total_bytes,
+                )
 
-          fetch, source, local_path = api.fetch_warc_record(
-            warc_filename=str(tool_args.get("warc_filename") or ""),
-            warc_offset=int(tool_args.get("warc_offset") or 0),
-            warc_length=int(tool_args.get("warc_length") or 0),
-            prefix=str(tool_args.get("prefix") or "https://data.commoncrawl.org/"),
-            max_bytes=max_bytes,
-            decode_gzip_text=True,
-            max_preview_chars=max_preview_chars,
-            cache_mode=str(tool_args.get("cache_mode") or str(s.get("default_cache_mode") or "range")),
-            range_cache_max_bytes=range_cache_max_bytes,
-            range_cache_max_item_bytes=range_cache_max_item_bytes,
-            full_warc_cache_dir=(
-              Path(str(tool_args.get("full_warc_cache_dir")))
-              if tool_args.get("full_warc_cache_dir")
-              else (Path(str(s.get("full_warc_cache_dir"))) if s.get("full_warc_cache_dir") else None)
-            ),
-            full_warc_max_bytes=int(
-              tool_args.get("full_warc_max_bytes") or int(s.get("full_warc_max_bytes") or 5_000_000_000)
-            ),
-            full_warc_cache_max_total_bytes=full_warc_cache_max_total_bytes,
-          )
+                out: Dict[str, Any] = {
+                    "ok": fetch.ok,
+                    "status": fetch.status,
+                    "url": fetch.url,
+                    "source": source,
+                    "local_warc_path": local_path,
+                    "bytes_requested": fetch.bytes_requested,
+                    "bytes_returned": fetch.bytes_returned,
+                    "sha256": fetch.sha256,
+                    "decoded_text_preview": fetch.decoded_text_preview,
+                    "error": fetch.error,
+                }
 
-          out: Dict[str, Any] = {
-            "ok": fetch.ok,
-            "status": fetch.status,
-            "url": fetch.url,
-            "source": source,
-            "local_warc_path": local_path,
-            "bytes_requested": fetch.bytes_requested,
-            "bytes_returned": fetch.bytes_returned,
-            "sha256": fetch.sha256,
-            "decoded_text_preview": fetch.decoded_text_preview,
-            "error": fetch.error,
-          }
+                if fetch.ok and fetch.raw_base64:
+                    try:
+                        import base64 as _b64
 
-          if fetch.ok and fetch.raw_base64:
+                        raw = _b64.b64decode(fetch.raw_base64)
+                        parsed = api.extract_http_from_warc_gzip_member(
+                            raw,
+                            max_body_bytes=max_bytes,
+                            max_preview_chars=max_preview_chars,
+                            include_body_base64=False,
+                        )
+                        out["http"] = {
+                            "ok": parsed.ok,
+                            "warc_headers": parsed.warc_headers,
+                            "status": parsed.http_status,
+                            "status_line": parsed.http_status_line,
+                            "headers": parsed.http_headers,
+                            "body_text_preview": parsed.body_text_preview,
+                            "body_is_html": parsed.body_is_html,
+                            "body_mime": parsed.body_mime,
+                            "body_charset": parsed.body_charset,
+                            "error": parsed.error,
+                        }
+                    except Exception as e:
+                        out["http"] = {
+                            "ok": False,
+                            "error": f"parse_failed: {type(e).__name__}: {e}",
+                        }
+
+                return out
+
+            if tool_name == "list_collections":
+                year = tool_args.get("year")
+                cols = api.list_collections(
+                    master_db=Path(master_db), year=str(year) if year else None
+                )
+                return [
+                    {
+                        "year": c.year,
+                        "collection": c.collection,
+                        "collection_db_path": str(c.collection_db_path),
+                    }
+                    for c in cols
+                ]
+
+            if tool_name == "brave_search_ccindex":
+                s = _load_settings()
+                _apply_brave_resolve_env_from_settings(s)
+                q = str(tool_args.get("query") or "")
+                year = tool_args.get("year")
+                parquet_root = Path(
+                    str(tool_args.get("parquet_root") or "/storage/ccindex_parquet")
+                )
+                count = int(tool_args.get("count") or int(brave_max_count))
+                offset = int(tool_args.get("offset") or 0)
+
+                api_key = None
+                if not (os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip():
+                    api_key = str(s.get("brave_search_api_key") or "").strip() or None
+
+                res = api.brave_search_ccindex(
+                    q,
+                    count=count,
+                    offset=offset,
+                    parquet_root=parquet_root,
+                    master_db=Path(master_db),
+                    year=str(year) if year else None,
+                    api_key=api_key,
+                )
+                return {
+                    "query": res.query,
+                    "count": res.count,
+                    "offset": res.offset,
+                    "total_results": res.total_results,
+                    "brave_cached": res.brave_cached,
+                    "resolved_cached": res.resolved_cached,
+                    "elapsed_s": res.elapsed_s,
+                    "brave_elapsed_s": res.brave_elapsed_s,
+                    "resolve_elapsed_s": res.resolve_elapsed_s,
+                    "resolve_mode": res.resolve_mode,
+                    "resolve_strategy": (os.environ.get("BRAVE_RESOLVE_STRATEGY") or "").strip()
+                    or None,
+                    "resolve_workers": (
+                        int(os.environ.get("BRAVE_RESOLVE_WORKERS"))
+                        if (os.environ.get("BRAVE_RESOLVE_WORKERS") or "").strip().isdigit()
+                        else None
+                    ),
+                    "resolve_domains": res.resolve_domains,
+                    "resolve_parquet_files": res.resolve_parquet_files,
+                    "resolve_stats": getattr(res, "resolve_stats", {}) or {},
+                    "results": res.results,
+                }
+
+            if tool_name == "brave_cache_stats":
+                from common_crawl_search_engine.ccsearch.brave_search import (
+                    brave_search_cache_stats,
+                )
+
+                return brave_search_cache_stats()
+
+            if tool_name == "brave_cache_clear":
+                from common_crawl_search_engine.ccsearch.brave_search import (
+                    clear_brave_search_cache,
+                )
+
+                return clear_brave_search_cache()
+
+            if tool_name == "brave_resolve_cache_stats":
+                from common_crawl_search_engine.ccindex.api import brave_resolve_cache_stats
+
+                return brave_resolve_cache_stats()
+
+            if tool_name == "brave_resolve_cache_clear":
+                from common_crawl_search_engine.ccindex.api import clear_brave_resolve_cache
+
+                return clear_brave_resolve_cache()
+
+            if tool_name == "orchestrator_settings_get":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    load_orchestrator_settings,
+                )
+
+                return load_orchestrator_settings()
+
+            if tool_name == "orchestrator_settings_set":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    save_orchestrator_settings,
+                )
+
+                upd = tool_args.get("settings")
+                if not isinstance(upd, dict):
+                    raise ValueError("settings must be an object")
+                return save_orchestrator_settings(upd)
+
+            if tool_name == "orchestrator_collection_status":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    validate_collection_status,
+                )
+
+                collection = str(tool_args.get("collection") or "").strip()
+                if not collection:
+                    raise ValueError("collection is required")
+                return validate_collection_status(collection)
+
+            if tool_name == "orchestrator_delete_collection_index":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    delete_collection_index,
+                )
+
+                collection = str(tool_args.get("collection") or "").strip()
+                if not collection:
+                    raise ValueError("collection is required")
+                return delete_collection_index(collection)
+
+            if tool_name == "orchestrator_job_plan":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    plan_orchestrator_command,
+                )
+
+                mode = str(tool_args.get("mode") or "").strip()
+                return plan_orchestrator_command(
+                    mode=mode,  # type: ignore[arg-type]
+                    filter=(
+                        tool_args.get("filter") if tool_args.get("filter") is not None else None
+                    ),
+                    workers=(
+                        int(tool_args.get("workers"))
+                        if tool_args.get("workers") is not None
+                        else None
+                    ),
+                    force_reindex=(
+                        bool(tool_args.get("force_reindex"))
+                        if tool_args.get("force_reindex") is not None
+                        else None
+                    ),
+                    cleanup_dry_run=(
+                        bool(tool_args.get("cleanup_dry_run"))
+                        if tool_args.get("cleanup_dry_run") is not None
+                        else None
+                    ),
+                    yes=(bool(tool_args.get("yes")) if tool_args.get("yes") is not None else None),
+                    heartbeat_seconds=(
+                        int(tool_args.get("heartbeat_seconds"))
+                        if tool_args.get("heartbeat_seconds") is not None
+                        else None
+                    ),
+                    sort_workers=(
+                        int(tool_args.get("sort_workers"))
+                        if tool_args.get("sort_workers") is not None
+                        else None
+                    ),
+                    sort_memory_per_worker_gb=(
+                        float(tool_args.get("sort_memory_per_worker_gb"))
+                        if tool_args.get("sort_memory_per_worker_gb") is not None
+                        else None
+                    ),
+                    sort_temp_dir=(
+                        str(tool_args.get("sort_temp_dir"))
+                        if tool_args.get("sort_temp_dir") is not None
+                        else None
+                    ),
+                    build_domain_rowgroup_index=(
+                        bool(tool_args.get("build_domain_rowgroup_index"))
+                        if tool_args.get("build_domain_rowgroup_index") is not None
+                        else None
+                    ),
+                    domain_rowgroup_index_root=(
+                        str(tool_args.get("domain_rowgroup_index_root"))
+                        if tool_args.get("domain_rowgroup_index_root") is not None
+                        else None
+                    ),
+                    domain_rowgroup_index_batch_size=(
+                        int(tool_args.get("domain_rowgroup_index_batch_size"))
+                        if tool_args.get("domain_rowgroup_index_batch_size") is not None
+                        else None
+                    ),
+                )
+
+            if tool_name == "orchestrator_job_start":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    start_orchestrator_job,
+                )
+
+                planned = tool_args.get("planned")
+                if not isinstance(planned, dict):
+                    raise ValueError("planned must be an object")
+                label = str(tool_args.get("label") or "orchestrator")
+                job = start_orchestrator_job(planned=planned, label=label)
+                return {"pid": job.pid, "log_path": job.log_path, "cmd": job.cmd}
+
+            if tool_name == "orchestrator_job_stop":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import stop_job
+
+                pid = int(tool_args.get("pid") or 0)
+                if pid <= 0:
+                    raise ValueError("pid is required")
+                sig = str(tool_args.get("sig") or "TERM")
+                return stop_job(pid, sig=sig)
+
+            if tool_name == "orchestrator_job_tail":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import tail_file
+
+                log_path = str(tool_args.get("log_path") or "")
+                if not log_path:
+                    raise ValueError("log_path is required")
+                lines = int(tool_args.get("lines") or 200)
+                return {"log_path": log_path, "tail": tail_file(log_path, lines=lines)}
+
+            if tool_name == "cc_collinfo_list":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import load_collinfo
+
+                prefer_cache = tool_args.get("prefer_cache")
+                return load_collinfo(
+                    prefer_cache=(bool(prefer_cache) if prefer_cache is not None else True)
+                )
+
+            if tool_name == "cc_collinfo_update":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import update_collinfo
+
+                url = tool_args.get("url")
+                timeout_s = tool_args.get("timeout_s")
+                return update_collinfo(
+                    url=(
+                        str(url)
+                        if url is not None
+                        else "https://index.commoncrawl.org/collinfo.json"
+                    ),
+                    timeout_s=(float(timeout_s) if timeout_s is not None else 15.0),
+                )
+
+            if tool_name == "orchestrator_collections_status":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    validate_collections_status,
+                )
+
+                cols = tool_args.get("collections")
+                if not isinstance(cols, list):
+                    raise ValueError("collections must be an array")
+                parallelism = tool_args.get("parallelism")
+                return validate_collections_status(
+                    [str(c) for c in cols],
+                    parallelism=(int(parallelism) if parallelism is not None else 8),
+                )
+
+            if tool_name == "orchestrator_delete_collection_indexes":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import (
+                    delete_collection_indexes,
+                )
+
+                cols = tool_args.get("collections")
+                if not isinstance(cols, list):
+                    raise ValueError("collections must be an array")
+                return delete_collection_indexes([str(c) for c in cols])
+
+            if tool_name == "orchestrator_jobs_list":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import list_jobs
+
+                limit = tool_args.get("limit")
+                return {
+                    "ok": True,
+                    "jobs": list_jobs(limit=(int(limit) if limit is not None else 50)),
+                }
+
+            if tool_name == "orchestrator_job_status":
+                from common_crawl_search_engine.ccindex.orchestrator_manager import job_status
+
+                pid = tool_args.get("pid")
+                log_path = tool_args.get("log_path")
+                lines = tool_args.get("lines")
+                return job_status(
+                    pid=(int(pid) if pid is not None else None),
+                    log_path=(str(log_path) if log_path is not None else None),
+                    lines=(int(lines) if lines is not None else 200),
+                )
+
+            raise KeyError(tool_name)
+
+        async def _handle_one(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            req_id = req.get("id")
+            method = req.get("method")
+            params = req.get("params")
+
+            # Notification: no id means no response.
+            if req_id is None:
+                return None
+
+            if method == "tools/list":
+                return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}}
+
+            if method != "tools/call":
+                return _jsonrpc_error(req_id, -32601, f"Method not found: {method}")
+
+            if not isinstance(params, dict):
+                return _jsonrpc_error(req_id, -32602, "Invalid params")
+
+            tool_name = params.get("name")
+            tool_args = params.get("arguments") or {}
+            if not isinstance(tool_name, str) or not tool_name:
+                return _jsonrpc_error(req_id, -32602, "Missing tool name")
+            if not isinstance(tool_args, dict):
+                return _jsonrpc_error(req_id, -32602, "Tool arguments must be an object")
+
             try:
-              import base64 as _b64
-
-              raw = _b64.b64decode(fetch.raw_base64)
-              parsed = api.extract_http_from_warc_gzip_member(
-                raw,
-                max_body_bytes=max_bytes,
-                max_preview_chars=max_preview_chars,
-                include_body_base64=False,
-              )
-              out["http"] = {
-                "ok": parsed.ok,
-                "warc_headers": parsed.warc_headers,
-                "status": parsed.http_status,
-                "status_line": parsed.http_status_line,
-                "headers": parsed.http_headers,
-                "body_text_preview": parsed.body_text_preview,
-                "body_is_html": parsed.body_is_html,
-                "body_mime": parsed.body_mime,
-                "body_charset": parsed.body_charset,
-                "error": parsed.error,
-              }
+                out = await run_in_threadpool(
+                    _call_tool_sync, tool_name=tool_name, tool_args=tool_args
+                )
+                return {"jsonrpc": "2.0", "id": req_id, "result": out}
+            except KeyError:
+                return _jsonrpc_error(req_id, -32601, f"Unknown tool: {tool_name}")
             except Exception as e:
-              out["http"] = {"ok": False, "error": f"parse_failed: {type(e).__name__}: {e}"}
+                return _jsonrpc_error(req_id, -32000, f"Tool error: {type(e).__name__}: {e}")
 
-          return out
+        if isinstance(payload, list):
+            responses: list[Dict[str, Any]] = []
+            for item in payload:
+                if not isinstance(item, dict):
+                    responses.append(_jsonrpc_error(None, -32600, "Invalid Request"))
+                    continue
+                r = await _handle_one(item)
+                if r is not None:
+                    responses.append(r)
 
-        if tool_name == "list_collections":
-          year = tool_args.get("year")
-          cols = api.list_collections(master_db=Path(master_db), year=str(year) if year else None)
-          return [
-            {"year": c.year, "collection": c.collection, "collection_db_path": str(c.collection_db_path)}
-            for c in cols
-          ]
+            if not responses:
+                return Response(status_code=204)
+            return JSONResponse(responses)
 
-        if tool_name == "brave_search_ccindex":
-          s = _load_settings()
-          _apply_brave_resolve_env_from_settings(s)
-          q = str(tool_args.get("query") or "")
-          year = tool_args.get("year")
-          parquet_root = Path(str(tool_args.get("parquet_root") or "/storage/ccindex_parquet"))
-          count = int(tool_args.get("count") or int(brave_max_count))
-          offset = int(tool_args.get("offset") or 0)
+        if not isinstance(payload, dict):
+            return JSONResponse(_jsonrpc_error(None, -32600, "Invalid Request"))
 
-          api_key = None
-          if not (os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip():
-            api_key = (str(s.get("brave_search_api_key") or "").strip() or None)
-
-          res = api.brave_search_ccindex(
-            q,
-            count=count,
-            offset=offset,
-            parquet_root=parquet_root,
-            master_db=Path(master_db),
-            year=str(year) if year else None,
-            api_key=api_key,
-          )
-          return {
-            "query": res.query,
-            "count": res.count,
-            "offset": res.offset,
-            "total_results": res.total_results,
-            "brave_cached": res.brave_cached,
-            "resolved_cached": res.resolved_cached,
-            "elapsed_s": res.elapsed_s,
-            "brave_elapsed_s": res.brave_elapsed_s,
-            "resolve_elapsed_s": res.resolve_elapsed_s,
-            "resolve_mode": res.resolve_mode,
-            "resolve_strategy": (os.environ.get("BRAVE_RESOLVE_STRATEGY") or "").strip() or None,
-            "resolve_workers": (
-              int(os.environ.get("BRAVE_RESOLVE_WORKERS"))
-              if (os.environ.get("BRAVE_RESOLVE_WORKERS") or "").strip().isdigit()
-              else None
-            ),
-            "resolve_domains": res.resolve_domains,
-            "resolve_parquet_files": res.resolve_parquet_files,
-            "resolve_stats": getattr(res, "resolve_stats", {}) or {},
-            "results": res.results,
-          }
-
-        if tool_name == "brave_cache_stats":
-          from common_crawl_search_engine.ccsearch.brave_search import brave_search_cache_stats
-
-          return brave_search_cache_stats()
-
-        if tool_name == "brave_cache_clear":
-          from common_crawl_search_engine.ccsearch.brave_search import clear_brave_search_cache
-
-          return clear_brave_search_cache()
-
-        if tool_name == "brave_resolve_cache_stats":
-          from common_crawl_search_engine.ccindex.api import brave_resolve_cache_stats
-
-          return brave_resolve_cache_stats()
-
-        if tool_name == "brave_resolve_cache_clear":
-          from common_crawl_search_engine.ccindex.api import clear_brave_resolve_cache
-
-          return clear_brave_resolve_cache()
-
-        if tool_name == "orchestrator_settings_get":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import load_orchestrator_settings
-
-          return load_orchestrator_settings()
-
-        if tool_name == "orchestrator_settings_set":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import save_orchestrator_settings
-
-          upd = tool_args.get("settings")
-          if not isinstance(upd, dict):
-            raise ValueError("settings must be an object")
-          return save_orchestrator_settings(upd)
-
-        if tool_name == "orchestrator_collection_status":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import validate_collection_status
-
-          collection = str(tool_args.get("collection") or "").strip()
-          if not collection:
-            raise ValueError("collection is required")
-          return validate_collection_status(collection)
-
-        if tool_name == "orchestrator_delete_collection_index":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import delete_collection_index
-
-          collection = str(tool_args.get("collection") or "").strip()
-          if not collection:
-            raise ValueError("collection is required")
-          return delete_collection_index(collection)
-
-        if tool_name == "orchestrator_job_plan":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import plan_orchestrator_command
-
-          mode = str(tool_args.get("mode") or "").strip()
-          return plan_orchestrator_command(
-            mode=mode,  # type: ignore[arg-type]
-            filter=(tool_args.get("filter") if tool_args.get("filter") is not None else None),
-            workers=(int(tool_args.get("workers")) if tool_args.get("workers") is not None else None),
-            force_reindex=(bool(tool_args.get("force_reindex")) if tool_args.get("force_reindex") is not None else None),
-            cleanup_dry_run=(bool(tool_args.get("cleanup_dry_run")) if tool_args.get("cleanup_dry_run") is not None else None),
-            yes=(bool(tool_args.get("yes")) if tool_args.get("yes") is not None else None),
-            heartbeat_seconds=(int(tool_args.get("heartbeat_seconds")) if tool_args.get("heartbeat_seconds") is not None else None),
-            sort_workers=(int(tool_args.get("sort_workers")) if tool_args.get("sort_workers") is not None else None),
-            sort_memory_per_worker_gb=(float(tool_args.get("sort_memory_per_worker_gb")) if tool_args.get("sort_memory_per_worker_gb") is not None else None),
-            sort_temp_dir=(str(tool_args.get("sort_temp_dir")) if tool_args.get("sort_temp_dir") is not None else None),
-
-            build_domain_rowgroup_index=(bool(tool_args.get("build_domain_rowgroup_index")) if tool_args.get("build_domain_rowgroup_index") is not None else None),
-            domain_rowgroup_index_root=(str(tool_args.get("domain_rowgroup_index_root")) if tool_args.get("domain_rowgroup_index_root") is not None else None),
-            domain_rowgroup_index_batch_size=(int(tool_args.get("domain_rowgroup_index_batch_size")) if tool_args.get("domain_rowgroup_index_batch_size") is not None else None),
-          )
-
-        if tool_name == "orchestrator_job_start":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import start_orchestrator_job
-
-          planned = tool_args.get("planned")
-          if not isinstance(planned, dict):
-            raise ValueError("planned must be an object")
-          label = str(tool_args.get("label") or "orchestrator")
-          job = start_orchestrator_job(planned=planned, label=label)
-          return {"pid": job.pid, "log_path": job.log_path, "cmd": job.cmd}
-
-        if tool_name == "orchestrator_job_stop":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import stop_job
-
-          pid = int(tool_args.get("pid") or 0)
-          if pid <= 0:
-            raise ValueError("pid is required")
-          sig = str(tool_args.get("sig") or "TERM")
-          return stop_job(pid, sig=sig)
-
-        if tool_name == "orchestrator_job_tail":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import tail_file
-
-          log_path = str(tool_args.get("log_path") or "")
-          if not log_path:
-            raise ValueError("log_path is required")
-          lines = int(tool_args.get("lines") or 200)
-          return {"log_path": log_path, "tail": tail_file(log_path, lines=lines)}
-
-        if tool_name == "cc_collinfo_list":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import load_collinfo
-
-          prefer_cache = tool_args.get("prefer_cache")
-          return load_collinfo(prefer_cache=(bool(prefer_cache) if prefer_cache is not None else True))
-
-        if tool_name == "cc_collinfo_update":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import update_collinfo
-
-          url = tool_args.get("url")
-          timeout_s = tool_args.get("timeout_s")
-          return update_collinfo(
-            url=(str(url) if url is not None else "https://index.commoncrawl.org/collinfo.json"),
-            timeout_s=(float(timeout_s) if timeout_s is not None else 15.0),
-          )
-
-        if tool_name == "orchestrator_collections_status":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import validate_collections_status
-
-          cols = tool_args.get("collections")
-          if not isinstance(cols, list):
-            raise ValueError("collections must be an array")
-          parallelism = tool_args.get("parallelism")
-          return validate_collections_status(
-            [str(c) for c in cols],
-            parallelism=(int(parallelism) if parallelism is not None else 8),
-          )
-
-        if tool_name == "orchestrator_delete_collection_indexes":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import delete_collection_indexes
-
-          cols = tool_args.get("collections")
-          if not isinstance(cols, list):
-            raise ValueError("collections must be an array")
-          return delete_collection_indexes([str(c) for c in cols])
-
-        if tool_name == "orchestrator_jobs_list":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import list_jobs
-
-          limit = tool_args.get("limit")
-          return {"ok": True, "jobs": list_jobs(limit=(int(limit) if limit is not None else 50))}
-
-        if tool_name == "orchestrator_job_status":
-          from common_crawl_search_engine.ccindex.orchestrator_manager import job_status
-
-          pid = tool_args.get("pid")
-          log_path = tool_args.get("log_path")
-          lines = tool_args.get("lines")
-          return job_status(
-            pid=(int(pid) if pid is not None else None),
-            log_path=(str(log_path) if log_path is not None else None),
-            lines=(int(lines) if lines is not None else 200),
-          )
-
-        raise KeyError(tool_name)
-
-      async def _handle_one(req: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        req_id = req.get("id")
-        method = req.get("method")
-        params = req.get("params")
-
-        # Notification: no id means no response.
-        if req_id is None:
-          return None
-
-        if method == "tools/list":
-          return {"jsonrpc": "2.0", "id": req_id, "result": {"tools": tools}}
-
-        if method != "tools/call":
-          return _jsonrpc_error(req_id, -32601, f"Method not found: {method}")
-
-        if not isinstance(params, dict):
-          return _jsonrpc_error(req_id, -32602, "Invalid params")
-
-        tool_name = params.get("name")
-        tool_args = params.get("arguments") or {}
-        if not isinstance(tool_name, str) or not tool_name:
-          return _jsonrpc_error(req_id, -32602, "Missing tool name")
-        if not isinstance(tool_args, dict):
-          return _jsonrpc_error(req_id, -32602, "Tool arguments must be an object")
-
-        try:
-          out = await run_in_threadpool(_call_tool_sync, tool_name=tool_name, tool_args=tool_args)
-          return {"jsonrpc": "2.0", "id": req_id, "result": out}
-        except KeyError:
-          return _jsonrpc_error(req_id, -32601, f"Unknown tool: {tool_name}")
-        except Exception as e:
-          return _jsonrpc_error(req_id, -32000, f"Tool error: {type(e).__name__}: {e}")
-
-      if isinstance(payload, list):
-        responses: list[Dict[str, Any]] = []
-        for item in payload:
-          if not isinstance(item, dict):
-            responses.append(_jsonrpc_error(None, -32600, "Invalid Request"))
-            continue
-          r = await _handle_one(item)
-          if r is not None:
-            responses.append(r)
-
-        if not responses:
-          return Response(status_code=204)
-        return JSONResponse(responses)
-
-      if not isinstance(payload, dict):
-        return JSONResponse(_jsonrpc_error(None, -32600, "Invalid Request"))
-
-      resp = await _handle_one(payload)
-      if resp is None:
-        return Response(status_code=204)
-      return JSONResponse(resp)
+        resp = await _handle_one(payload)
+        if resp is None:
+            return Response(status_code=204)
+        return JSONResponse(resp)
 
     @app.get("/healthz")
     def healthz() -> Dict[str, Any]:
-      return {"ok": True}
+        return {"ok": True}
 
     @app.get("/", response_class=HTMLResponse)
     def home(
@@ -1040,10 +1151,10 @@ def create_app(master_db: Path) -> Any:
         year: str = Query(default="", description="optional year"),
         max_matches: int = Query(default=500, ge=1, le=5000),
         parquet_root: str = Query(default="/storage/ccindex_parquet"),
-      hf_remote_meta: int = Query(default=0, ge=0, le=1),
-      hf_meta_index_dataset: str = Query(default=""),
-      hf_pointer_dataset: str = Query(default=""),
-      hf_revision: str = Query(default=""),
+        hf_remote_meta: int = Query(default=0, ge=0, le=1),
+        hf_meta_index_dataset: str = Query(default=""),
+        hf_pointer_dataset: str = Query(default=""),
+        hf_revision: str = Query(default=""),
         embed: int = Query(default=0, ge=0, le=1),
     ) -> str:
         base_path = _base_path(request)
@@ -1091,7 +1202,7 @@ def create_app(master_db: Path) -> Any:
     <div class='field'>
       <label>HF remote meta</label>
       <label style='display:flex; align-items:center; gap:8px; margin-top:8px;'>
-        <input id='hf_remote_meta' name='hf_remote_meta' type='checkbox' value='1' {'checked' if int(hf_remote_meta) else ''}>
+        <input id='hf_remote_meta' name='hf_remote_meta' type='checkbox' value='1' {"checked" if int(hf_remote_meta) else ""}>
         <span class='small'>query HF indexes via DuckDB HTTP</span>
       </label>
     </div>
@@ -1120,14 +1231,14 @@ def create_app(master_db: Path) -> Any:
 """
 
         initial = {
-          "q": q,
-          "year": year,
-          "max_matches": int(max_matches),
-          "parquet_root": parquet_root,
-          "hf_remote_meta": int(hf_remote_meta),
-          "hf_meta_index_dataset": hf_meta_index_dataset,
-          "hf_pointer_dataset": hf_pointer_dataset,
-          "hf_revision": hf_revision,
+            "q": q,
+            "year": year,
+            "max_matches": int(max_matches),
+            "parquet_root": parquet_root,
+            "hf_remote_meta": int(hf_remote_meta),
+            "hf_meta_index_dataset": hf_meta_index_dataset,
+            "hf_pointer_dataset": hf_pointer_dataset,
+            "hf_revision": hf_revision,
         }
         body = "\n".join(
             [
@@ -1524,8 +1635,14 @@ def create_app(master_db: Path) -> Any:
         # Surface server-side cache defaults (these are env-controlled).
         range_cache_env = os.environ.get("CCINDEX_WARC_CACHE_DIR")
         full_cache_env = os.environ.get("CCINDEX_FULL_WARC_CACHE_DIR")
-        range_cache_hint = "state/warc_cache" if (range_cache_env is None or range_cache_env.strip()) else "disabled"
-        full_cache_hint = "state/warc_files" if (full_cache_env is None or full_cache_env.strip()) else "disabled"
+        range_cache_hint = (
+            "state/warc_cache"
+            if (range_cache_env is None or range_cache_env.strip())
+            else "disabled"
+        )
+        full_cache_hint = (
+            "state/warc_files" if (full_cache_env is None or full_cache_env.strip()) else "disabled"
+        )
 
         brave_env_set = bool((os.environ.get("BRAVE_SEARCH_API_KEY") or "").strip())
         brave_saved_set = bool((str(s.get("brave_search_api_key") or "").strip()))
@@ -1533,7 +1650,9 @@ def create_app(master_db: Path) -> Any:
         brave_resolve_strategy = str(s.get("brave_resolve_strategy") or "meta_parallel")
         brave_resolve_workers = s.get("brave_resolve_workers")
         brave_resolve_relpath_workers = s.get("brave_resolve_relpath_workers")
-        active_strategy = (os.environ.get("BRAVE_RESOLVE_STRATEGY") or "").strip() or "meta_parallel"
+        active_strategy = (
+            os.environ.get("BRAVE_RESOLVE_STRATEGY") or ""
+        ).strip() or "meta_parallel"
         active_workers = (os.environ.get("BRAVE_RESOLVE_WORKERS") or "").strip()
         active_relpath_workers = (os.environ.get("BRAVE_RESOLVE_RELPATH_WORKERS") or "").strip()
 
@@ -2046,7 +2165,9 @@ def create_app(master_db: Path) -> Any:
   loadOrchestratorSettings();
 </script>
 """
-        return _layout("Common Crawl Search Engine • Settings", body, embed=bool(embed), base_path=base_path)
+        return _layout(
+            "Common Crawl Search Engine • Settings", body, embed=bool(embed), base_path=base_path
+        )
 
     @app.get("/index", response_class=HTMLResponse)
     def index_page(request: Request, embed: int = Query(default=0, ge=0, le=1)) -> str:
@@ -2574,7 +2695,9 @@ def create_app(master_db: Path) -> Any:
 </script>
 """
 
-        return _layout("Common Crawl Search Engine • Index", body, embed=bool(embed), base_path=base_path)
+        return _layout(
+            "Common Crawl Search Engine • Index", body, embed=bool(embed), base_path=base_path
+        )
 
     @app.post("/settings")
     async def settings_save(request: Request) -> JSONResponse:
@@ -2589,23 +2712,32 @@ def create_app(master_db: Path) -> Any:
             # Preserve sensitive values by default.
             out["brave_search_api_key"] = prev.get("brave_search_api_key")
             # Preserve resolve knobs by default.
-            out["brave_resolve_strategy"] = prev.get("brave_resolve_strategy") or out["brave_resolve_strategy"]
+            out["brave_resolve_strategy"] = (
+                prev.get("brave_resolve_strategy") or out["brave_resolve_strategy"]
+            )
             out["brave_resolve_workers"] = prev.get("brave_resolve_workers")
             out["brave_resolve_relpath_workers"] = prev.get("brave_resolve_relpath_workers")
 
-            mode = str(payload.get("default_cache_mode") or out["default_cache_mode"]).strip().lower()
+            mode = (
+                str(payload.get("default_cache_mode") or out["default_cache_mode"]).strip().lower()
+            )
             if mode not in ("range", "auto", "full"):
                 return JSONResponse(
-                    {"ok": False, "error": "default_cache_mode must be range|auto|full"}, status_code=400
+                    {"ok": False, "error": "default_cache_mode must be range|auto|full"},
+                    status_code=400,
                 )
             out["default_cache_mode"] = mode
 
-            out["default_max_bytes"] = int(payload.get("default_max_bytes") or out["default_max_bytes"])
+            out["default_max_bytes"] = int(
+                payload.get("default_max_bytes") or out["default_max_bytes"]
+            )
             out["default_max_preview_chars"] = int(
                 payload.get("default_max_preview_chars") or out["default_max_preview_chars"]
             )
 
-            out["range_cache_max_bytes"] = int(payload.get("range_cache_max_bytes") or out["range_cache_max_bytes"])
+            out["range_cache_max_bytes"] = int(
+                payload.get("range_cache_max_bytes") or out["range_cache_max_bytes"]
+            )
             out["range_cache_max_item_bytes"] = int(
                 payload.get("range_cache_max_item_bytes") or out["range_cache_max_item_bytes"]
             )
@@ -2616,9 +2748,12 @@ def create_app(master_db: Path) -> Any:
             else:
                 out["full_warc_cache_dir"] = str(full_dir)
 
-            out["full_warc_max_bytes"] = int(payload.get("full_warc_max_bytes") or out["full_warc_max_bytes"])
+            out["full_warc_max_bytes"] = int(
+                payload.get("full_warc_max_bytes") or out["full_warc_max_bytes"]
+            )
             out["full_warc_cache_max_total_bytes"] = int(
-                payload.get("full_warc_cache_max_total_bytes") or out["full_warc_cache_max_total_bytes"]
+                payload.get("full_warc_cache_max_total_bytes")
+                or out["full_warc_cache_max_total_bytes"]
             )
 
             # Brave key: if provided and non-empty, replace.
@@ -2629,44 +2764,53 @@ def create_app(master_db: Path) -> Any:
 
             # Brave resolve strategy/workers.
             if "brave_resolve_strategy" in payload:
-              st = str(payload.get("brave_resolve_strategy") or "meta_parallel").strip()
-              if st not in {"meta_parallel", "domain_url_join_parallel"}:
-                return JSONResponse(
-                  {"ok": False, "error": "brave_resolve_strategy must be meta_parallel|domain_url_join_parallel"},
-                  status_code=400,
-                )
-              out["brave_resolve_strategy"] = st
+                st = str(payload.get("brave_resolve_strategy") or "meta_parallel").strip()
+                if st not in {"meta_parallel", "domain_url_join_parallel"}:
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": "brave_resolve_strategy must be meta_parallel|domain_url_join_parallel",
+                        },
+                        status_code=400,
+                    )
+                out["brave_resolve_strategy"] = st
 
             if "brave_resolve_workers" in payload:
-              w = payload.get("brave_resolve_workers")
-              if w is None or str(w).strip() == "":
-                out["brave_resolve_workers"] = None
-              else:
-                try:
-                  wi = int(w)
-                except Exception:
-                  return JSONResponse({"ok": False, "error": "brave_resolve_workers must be an integer"}, status_code=400)
-                if wi <= 0:
-                  out["brave_resolve_workers"] = None
+                w = payload.get("brave_resolve_workers")
+                if w is None or str(w).strip() == "":
+                    out["brave_resolve_workers"] = None
                 else:
-                  out["brave_resolve_workers"] = int(wi)
+                    try:
+                        wi = int(w)
+                    except Exception:
+                        return JSONResponse(
+                            {"ok": False, "error": "brave_resolve_workers must be an integer"},
+                            status_code=400,
+                        )
+                    if wi <= 0:
+                        out["brave_resolve_workers"] = None
+                    else:
+                        out["brave_resolve_workers"] = int(wi)
 
             if "brave_resolve_relpath_workers" in payload:
-              w = payload.get("brave_resolve_relpath_workers")
-              if w is None or str(w).strip() == "":
-                out["brave_resolve_relpath_workers"] = None
-              else:
-                try:
-                  wi = int(w)
-                except Exception:
-                  return JSONResponse(
-                    {"ok": False, "error": "brave_resolve_relpath_workers must be an integer"},
-                    status_code=400,
-                  )
-                if wi <= 0:
-                  out["brave_resolve_relpath_workers"] = None
+                w = payload.get("brave_resolve_relpath_workers")
+                if w is None or str(w).strip() == "":
+                    out["brave_resolve_relpath_workers"] = None
                 else:
-                  out["brave_resolve_relpath_workers"] = int(wi)
+                    try:
+                        wi = int(w)
+                    except Exception:
+                        return JSONResponse(
+                            {
+                                "ok": False,
+                                "error": "brave_resolve_relpath_workers must be an integer",
+                            },
+                            status_code=400,
+                        )
+                    if wi <= 0:
+                        out["brave_resolve_relpath_workers"] = None
+                    else:
+                        out["brave_resolve_relpath_workers"] = int(wi)
 
             _save_settings(out)
             _apply_brave_resolve_env_from_settings(out)
@@ -2735,7 +2879,9 @@ def create_app(master_db: Path) -> Any:
             payload = await request.json()
             which = str((payload or {}).get("which") or "").strip().lower()
             if which not in {"range", "full", "all"}:
-                return JSONResponse({"ok": False, "error": "which must be range|full|all"}, status_code=400)
+                return JSONResponse(
+                    {"ok": False, "error": "which must be range|full|all"}, status_code=400
+                )
 
             s = _load_settings()
 
@@ -2794,7 +2940,9 @@ def create_app(master_db: Path) -> Any:
                 deleted_total += d
                 freed_total += b
 
-            return JSONResponse({"ok": True, "deleted_items": deleted_total, "freed_bytes": freed_total})
+            return JSONResponse(
+                {"ok": True, "deleted_items": deleted_total, "freed_bytes": freed_total}
+            )
         except Exception as e:
             return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
 
@@ -2830,23 +2978,27 @@ def create_app(master_db: Path) -> Any:
 
         @app.get("/settings/brave_resolve_cache_stats")
         def settings_brave_resolve_cache_stats() -> JSONResponse:
-          try:
-            from common_crawl_search_engine.ccindex.api import brave_resolve_cache_stats
+            try:
+                from common_crawl_search_engine.ccindex.api import brave_resolve_cache_stats
 
-            stats = brave_resolve_cache_stats()
-            return JSONResponse({"ok": True, **stats})
-          except Exception as e:
-            return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
+                stats = brave_resolve_cache_stats()
+                return JSONResponse({"ok": True, **stats})
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500
+                )
 
         @app.post("/settings/clear_brave_resolve_cache")
         def settings_clear_brave_resolve_cache() -> JSONResponse:
-          try:
-            from common_crawl_search_engine.ccindex.api import clear_brave_resolve_cache
+            try:
+                from common_crawl_search_engine.ccindex.api import clear_brave_resolve_cache
 
-            res = clear_brave_resolve_cache()
-            return JSONResponse({"ok": True, **res})
-          except Exception as e:
-            return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
+                res = clear_brave_resolve_cache()
+                return JSONResponse({"ok": True, **res})
+            except Exception as e:
+                return JSONResponse(
+                    {"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500
+                )
 
     @app.get("/record", response_class=HTMLResponse)
     def record(
@@ -2856,10 +3008,10 @@ def create_app(master_db: Path) -> Any:
         warc_length: int,
         prefix: str = "https://data.commoncrawl.org/",
         parquet_root: str = "/storage/ccindex_parquet",
-      hf_remote_meta: int = 0,
-      hf_meta_index_dataset: str = "",
-      hf_pointer_dataset: str = "",
-      hf_revision: str = "",
+        hf_remote_meta: int = 0,
+        hf_meta_index_dataset: str = "",
+        hf_pointer_dataset: str = "",
+        hf_revision: str = "",
     ) -> str:
         base_path = _base_path(request)
         s = _load_settings()
@@ -3073,7 +3225,7 @@ def create_app(master_db: Path) -> Any:
         request: Request,
         q: str = Query(default="", description="brave query"),
         year: str = Query(default="", description="optional year"),
-      count: int = Query(default=int(brave_max_count), ge=1, le=1000),
+        count: int = Query(default=int(brave_max_count), ge=1, le=1000),
         parquet_root: str = Query(default="/storage/ccindex_parquet"),
         embed: int = Query(default=0, ge=0, le=1),
     ) -> str:
@@ -3442,14 +3594,18 @@ def create_app(master_db: Path) -> Any:
 </script>
 """
 
-        return _layout("Common Crawl Search Engine • Search", body, embed=bool(embed), base_path=base_path)
+        return _layout(
+            "Common Crawl Search Engine • Search", body, embed=bool(embed), base_path=base_path
+        )
 
     return app
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     _ensure_default_search_env()
-    ap = argparse.ArgumentParser(description="Run the Common Crawl Search Engine dashboard + MCP JSON-RPC")
+    ap = argparse.ArgumentParser(
+        description="Run the Common Crawl Search Engine dashboard + MCP JSON-RPC"
+    )
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8787)
     ap.add_argument(

@@ -3,7 +3,9 @@ from __future__ import annotations
 import pytest
 
 
-def test_cli_search_meta_forwards_hf_remote_args(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_search_meta_forwards_hf_remote_args(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     """`search meta` should pass HF remote flags directly into API search."""
 
     from common_crawl_search_engine import cli

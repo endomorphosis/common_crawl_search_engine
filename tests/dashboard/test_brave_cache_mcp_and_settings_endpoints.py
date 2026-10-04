@@ -7,13 +7,17 @@ import pytest
 
 
 @pytest.mark.parametrize("endpoint", ["/settings/brave_cache_stats", "/settings/clear_brave_cache"])
-def test_dashboard_brave_cache_endpoints_exist(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str):
+def test_dashboard_brave_cache_endpoints_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str
+):
     # Isolate cache to a temp file.
     monkeypatch.setenv("BRAVE_SEARCH_CACHE_PATH", str(tmp_path / "brave_cache.json"))
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -37,7 +41,9 @@ def test_dashboard_mcp_exposes_brave_cache_tools(tmp_path: Path, monkeypatch: py
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient
@@ -88,7 +94,9 @@ def test_dashboard_settings_page_renders(tmp_path: Path, monkeypatch: pytest.Mon
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
+    app = create_app(
+        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    )
 
     try:
         from fastapi.testclient import TestClient

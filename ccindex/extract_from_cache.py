@@ -37,9 +37,7 @@ def _require_pyarrow():
     try:
         import pyarrow.parquet as pq  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise RuntimeError(
-            "pyarrow is required to read Parquet pointers (install pyarrow)"
-        ) from e
+        raise RuntimeError("pyarrow is required to read Parquet pointers (install pyarrow)") from e
     return pq
 
 
@@ -195,9 +193,21 @@ def _read_cached_slice(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Extract HTTP/page payloads from cached Common Crawl slice blobs")
-    ap.add_argument("--cache-root", type=Path, default=None, help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)")
-    ap.add_argument("--run-id", type=str, default=None, help="Run ID under <cache-root>/slice_indexes (default: LATEST.txt)")
+    ap = argparse.ArgumentParser(
+        description="Extract HTTP/page payloads from cached Common Crawl slice blobs"
+    )
+    ap.add_argument(
+        "--cache-root",
+        type=Path,
+        default=None,
+        help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)",
+    )
+    ap.add_argument(
+        "--run-id",
+        type=str,
+        default=None,
+        help="Run ID under <cache-root>/slice_indexes (default: LATEST.txt)",
+    )
     ap.add_argument("--prefix", type=str, default="https://data.commoncrawl.org/")
     ap.add_argument("--workers", type=int, default=16, help="Parallelism across slices")
 
@@ -234,7 +244,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
     args = ap.parse_args(list(argv) if argv is not None else None)
 
-    cache_root = (Path(args.cache_root).expanduser().resolve() if args.cache_root is not None else _default_cache_root())
+    cache_root = (
+        Path(args.cache_root).expanduser().resolve()
+        if args.cache_root is not None
+        else _default_cache_root()
+    )
     run_id = _infer_run_id(cache_root, args.run_id)
     run_dir = (cache_root / "slice_indexes" / run_id).resolve()
     range_dir = (cache_root / "ranges").resolve()
@@ -268,7 +282,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     pointer_meta = _load_pointer_meta(pointers_path)
     by_slice, member_rows = _group_members(members_jsonl)
 
-    slice_keys = sorted(by_slice.keys(), key=lambda k: (k.warc_filename, k.slice_start, k.slice_end))
+    slice_keys = sorted(
+        by_slice.keys(), key=lambda k: (k.warc_filename, k.slice_start, k.slice_end)
+    )
     sys.stderr.write(
         f"slices={len(slice_keys)} members={member_rows} pointers_meta={len(pointer_meta)} out={out_jsonl} allow_network={int(bool(args.allow_network))}\n"
     )

@@ -209,7 +209,7 @@ warc_length: int64      -- Record length in bytes
    ```
 2. Read only relevant row groups from parquet:
    ```python
-   pf = pq.ParquetFile('shard.parquet')
+   pf = pq.ParquetFile("shard.parquet")
    for rg_idx in relevant_row_groups:
        table = pf.read_row_group(rg_idx)
        # Filter in memory
@@ -425,7 +425,7 @@ Access DuckDB directly for advanced queries:
 ```python
 import duckdb
 
-con = duckdb.connect('cc_pointers_2024.duckdb', read_only=True)
+con = duckdb.connect("cc_pointers_2024.duckdb", read_only=True)
 
 # Find domains with most URLs
 result = con.execute("""

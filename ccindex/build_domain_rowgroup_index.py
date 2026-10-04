@@ -192,7 +192,9 @@ def _segment_rowgroup_host_revs(
         try:
             tbl = pf.read_row_group(rg_idx, columns=["host_rev"])
         except Exception as e:
-            raise RuntimeError(f"Failed to read row group {rg_idx} host_rev from {parquet_path}: {e}")
+            raise RuntimeError(
+                f"Failed to read row group {rg_idx} host_rev from {parquet_path}: {e}"
+            )
 
         if tbl.num_rows != n:
             # Parquet metadata mismatch shouldn't happen, but keep going safely.
@@ -219,7 +221,11 @@ def _segment_rowgroup_host_revs(
                         cur = None
 
                 if cur != prev:
-                    if prev is not None and run_start_global is not None and run_start_in_rg is not None:
+                    if (
+                        prev is not None
+                        and run_start_global is not None
+                        and run_start_in_rg is not None
+                    ):
                         seg = DomainRowGroupSegment(
                             source_path=src,
                             collection=collection,
@@ -236,7 +242,9 @@ def _segment_rowgroup_host_revs(
                             dom_rg_row_end=int(in_rg),
                         )
                         segments.append(seg)
-                        if max_segments_per_file is not None and len(segments) >= int(max_segments_per_file):
+                        if max_segments_per_file is not None and len(segments) >= int(
+                            max_segments_per_file
+                        ):
                             return segments
 
                     # Start a new run.
@@ -324,7 +332,9 @@ def main() -> int:
         default=1,
         help="Commit every N files (default: 1; safest for prototyping)",
     )
-    ap.add_argument("--max-files", type=int, default=None, help="Only process up to N parquet files")
+    ap.add_argument(
+        "--max-files", type=int, default=None, help="Only process up to N parquet files"
+    )
     ap.add_argument(
         "--only",
         action="append",
@@ -487,11 +497,15 @@ def main() -> int:
                 continue
             to_process.append((idx, pq_file, size_bytes, mtime_ns))
 
-        print(f"Plan: {len(files)} files total; {skipped_files} unchanged; {len(to_process)} to process")
+        print(
+            f"Plan: {len(files)} files total; {skipped_files} unchanged; {len(to_process)} to process"
+        )
 
         t0 = time.time()
 
-        max_segments_per_file = int(args.max_segments_per_file) if args.max_segments_per_file is not None else None
+        max_segments_per_file = (
+            int(args.max_segments_per_file) if args.max_segments_per_file is not None else None
+        )
 
         # Choose temp dir
         if workers > 1:
@@ -529,11 +543,15 @@ def main() -> int:
                 if segs:
                     tbl = _segments_to_arrow(segs)
                     con.register("_cc_domain_rowgroups", tbl)
-                    con.execute("INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups")
+                    con.execute(
+                        "INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups"
+                    )
                     con.unregister("_cc_domain_rowgroups")
                     total_segments += int(len(segs))
 
-                con.execute("DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?", [pq_path_str])
+                con.execute(
+                    "DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?", [pq_path_str]
+                )
                 con.execute(
                     "INSERT INTO cc_indexed_parquet_files (parquet_path, size_bytes, mtime_ns, indexed_at) VALUES (?, ?, ?, now())",
                     [pq_path_str, size_bytes, mtime_ns],
@@ -581,7 +599,10 @@ def main() -> int:
                         res = fut.result()
                     except Exception as e:
                         failed_files += 1
-                        print(f"[{idx}/{len(files)}] ❌ {pq_name}: worker crashed: {e}", file=sys.stderr)
+                        print(
+                            f"[{idx}/{len(files)}] ❌ {pq_name}: worker crashed: {e}",
+                            file=sys.stderr,
+                        )
                         continue
 
                     if not res.get("ok"):
@@ -596,7 +617,9 @@ def main() -> int:
                     seg_count = int(res.get("segments") or 0)
 
                     # Per-file idempotency (only after scan success).
-                    con.execute("DELETE FROM cc_domain_rowgroups WHERE source_path = ?", [pq_path_str])
+                    con.execute(
+                        "DELETE FROM cc_domain_rowgroups WHERE source_path = ?", [pq_path_str]
+                    )
 
                     try:
                         with ipc_path.open("rb") as f:
@@ -604,11 +627,16 @@ def main() -> int:
                             tbl = reader.read_all()
                         if tbl.num_rows:
                             con.register("_cc_domain_rowgroups", tbl)
-                            con.execute("INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups")
+                            con.execute(
+                                "INSERT INTO cc_domain_rowgroups SELECT * FROM _cc_domain_rowgroups"
+                            )
                             con.unregister("_cc_domain_rowgroups")
                             total_segments += int(seg_count)
 
-                        con.execute("DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?", [pq_path_str])
+                        con.execute(
+                            "DELETE FROM cc_indexed_parquet_files WHERE parquet_path = ?",
+                            [pq_path_str],
+                        )
                         con.execute(
                             "INSERT INTO cc_indexed_parquet_files (parquet_path, size_bytes, mtime_ns, indexed_at) VALUES (?, ?, ?, now())",
                             [pq_path_str, int(j["size_bytes"]), int(j["mtime_ns"])],
@@ -657,7 +685,9 @@ def main() -> int:
                 pass
 
         print("\nDone")
-        print(f"  processed: {did_files:,} files (skipped unchanged: {skipped_files:,}, failed: {failed_files:,})")
+        print(
+            f"  processed: {did_files:,} files (skipped unchanged: {skipped_files:,}, failed: {failed_files:,})"
+        )
         print(f"  segments:  {total_segments:,}")
         try:
             print(f"  db size:   {output_db.stat().st_size / (1024**3):.3f} GB")

@@ -65,9 +65,7 @@ def _pick_host_revs(con: duckdb.DuckDBPyConnection, n: int, seed: int) -> List[s
     return host_revs
 
 
-def _segments_for_host_rev(
-    con: duckdb.DuckDBPyConnection, host_rev: str
-) -> List[Segment]:
+def _segments_for_host_rev(con: duckdb.DuckDBPyConnection, host_rev: str) -> List[Segment]:
     rows = con.execute(
         """
         SELECT parquet_relpath, row_group, dom_rg_row_start, dom_rg_row_end
@@ -140,7 +138,9 @@ def _pct(a: float, b: float) -> float:
 def main() -> int:
     ap = argparse.ArgumentParser(description="Benchmark row-group slicing vs full parquet scan")
     ap.add_argument("--index-db", required=True, type=Path, help="DuckDB with cc_domain_rowgroups")
-    ap.add_argument("--parquet-root", required=True, type=Path, help="Root containing parquet files")
+    ap.add_argument(
+        "--parquet-root", required=True, type=Path, help="Root containing parquet files"
+    )
     ap.add_argument("--samples", type=int, default=50, help="Number of host_rev values to test")
     ap.add_argument("--repeats", type=int, default=3, help="Repeat each query N times")
     ap.add_argument("--threads", type=int, default=8, help="DuckDB threads for baseline")
@@ -201,7 +201,7 @@ def main() -> int:
 
     # Baseline DuckDB connection (in-memory)
     con_base = duckdb.connect(database=":memory:")
-    con_base.execute(f"PRAGMA threads={max(1,int(args.threads))}")
+    con_base.execute(f"PRAGMA threads={max(1, int(args.threads))}")
 
     try:
         base_times_ms: List[float] = []
@@ -275,9 +275,13 @@ def main() -> int:
         print()
 
         print("Baseline (DuckDB read_parquet WHERE host_rev=?)")
-        print(f"  n={len(base_times_ms)}  mean={b_mean:.3f}ms  median={b_med:.3f}ms  min={b_min:.3f}ms  max={b_max:.3f}ms")
+        print(
+            f"  n={len(base_times_ms)}  mean={b_mean:.3f}ms  median={b_med:.3f}ms  min={b_min:.3f}ms  max={b_max:.3f}ms"
+        )
         print("Rowgroup index + PyArrow read_row_group + slice")
-        print(f"  n={len(rg_times_ms)}  mean={r_mean:.3f}ms  median={r_med:.3f}ms  min={r_min:.3f}ms  max={r_max:.3f}ms")
+        print(
+            f"  n={len(rg_times_ms)}  mean={r_mean:.3f}ms  median={r_med:.3f}ms  min={r_min:.3f}ms  max={r_max:.3f}ms"
+        )
         print()
         print(f"Delta (median): {_pct(b_med, r_med):+.1f}%")
         print(f"Delta (mean):   {_pct(b_mean, r_mean):+.1f}%")

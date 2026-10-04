@@ -44,7 +44,10 @@ def is_url_index_sorted(parquet_file: Path, sample_size: int = 1000) -> Tuple[bo
 
         for i in range(len(sample) - 1):
             if sample[i] > sample[i + 1]:
-                return False, f"Unsorted within row group: {sample[i][:50]}... > {sample[i+1][:50]}..."
+                return (
+                    False,
+                    f"Unsorted within row group: {sample[i][:50]}... > {sample[i + 1][:50]}...",
+                )
 
         if pf.metadata.num_row_groups > 1:
             last_val = vals[-1]
@@ -66,7 +69,9 @@ def is_url_index_sorted(parquet_file: Path, sample_size: int = 1000) -> Tuple[bo
         return False, f"Error: {e}"
 
 
-def check_single_file(pq_file: Path, parquet_root: Path, verify_only: bool) -> Tuple[str, Path, bool, str]:
+def check_single_file(
+    pq_file: Path, parquet_root: Path, verify_only: bool
+) -> Tuple[str, Path, bool, str]:
     """Check a single parquet file and optionally mark it as sorted.
 
     Returns: (status, file_path, is_sorted, reason)
@@ -77,7 +82,10 @@ def check_single_file(pq_file: Path, parquet_root: Path, verify_only: bool) -> T
         return ("already_marked", pq_file, True, "Already marked")
 
     rel_path = str(pq_file.relative_to(parquet_root))
-    if any(marker in rel_path for marker in ["cc_pointers", "by_year_test", "by_collection", "ccindex_duckdb", "sample_"]):
+    if any(
+        marker in rel_path
+        for marker in ["cc_pointers", "by_year_test", "by_collection", "ccindex_duckdb", "sample_"]
+    ):
         return ("not_urlindex", pq_file, False, "Pointer/test file")
 
     try:
@@ -107,9 +115,13 @@ def check_single_file(pq_file: Path, parquet_root: Path, verify_only: bool) -> T
 
 def main(argv: List[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Validate and mark sorted URL index parquet files")
-    ap.add_argument("--parquet-root", required=True, type=str, help="Root directory of parquet files")
+    ap.add_argument(
+        "--parquet-root", required=True, type=str, help="Root directory of parquet files"
+    )
     ap.add_argument("--verify-only", action="store_true", help="Only verify, don't mark")
-    ap.add_argument("--workers", type=int, default=None, help="Number of parallel workers (default: CPU count)")
+    ap.add_argument(
+        "--workers", type=int, default=None, help="Number of parallel workers (default: CPU count)"
+    )
 
     args = ap.parse_args(argv)
 
@@ -199,7 +211,9 @@ def main(argv: List[str] | None = None) -> int:
     print(f"  ❌ Unsorted URL indexes:     {len(unsorted_files)}")
     print(f"  ⚠️  Errors:                  {len(error_files)}")
     print()
-    print(f"  Total URL index files:       {len(already_marked) + len(sorted_unmarked) + len(unsorted_files)}")
+    print(
+        f"  Total URL index files:       {len(already_marked) + len(sorted_unmarked) + len(unsorted_files)}"
+    )
     print(f"  Total sorted URL indexes:    {len(already_marked) + len(sorted_unmarked)}")
     if len(already_marked) + len(sorted_unmarked) + len(unsorted_files) > 0:
         pct = (

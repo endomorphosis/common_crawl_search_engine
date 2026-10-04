@@ -125,7 +125,13 @@ def _load_collections_from_master(master_db: Path, year: Optional[str]) -> List[
 
         out: List[CollectionRef] = []
         for y, coll, dbp in rows:
-            out.append(CollectionRef(year=str(y) if y is not None else None, collection=str(coll), collection_db_path=Path(str(dbp))))
+            out.append(
+                CollectionRef(
+                    year=str(y) if y is not None else None,
+                    collection=str(coll),
+                    collection_db_path=Path(str(dbp)),
+                )
+            )
         return out
     finally:
         con.close()
@@ -145,7 +151,13 @@ def _load_collections_from_year_db(year_db: Path) -> List[CollectionRef]:
         ).fetchall()
         out: List[CollectionRef] = []
         for coll, dbp in rows:
-            out.append(CollectionRef(year=_collection_year(str(coll)), collection=str(coll), collection_db_path=Path(str(dbp))))
+            out.append(
+                CollectionRef(
+                    year=_collection_year(str(coll)),
+                    collection=str(coll),
+                    collection_db_path=Path(str(dbp)),
+                )
+            )
         return out
     finally:
         con.close()
@@ -244,7 +256,9 @@ def _eprint(msg: str) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Query master/year/collection meta-indexes to get candidate WARC pointers")
+    ap = argparse.ArgumentParser(
+        description="Query master/year/collection meta-indexes to get candidate WARC pointers"
+    )
 
     src = ap.add_mutually_exclusive_group()
     src.add_argument(
@@ -253,10 +267,16 @@ def main() -> int:
         default=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
         help="Master meta-index DuckDB (default: /storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb)",
     )
-    src.add_argument("--year-db", type=Path, help="Year meta-index DuckDB (cc_pointers_<year>.duckdb)")
-    src.add_argument("--collection-db", type=Path, help="Single collection DuckDB (CC-MAIN-....duckdb)")
+    src.add_argument(
+        "--year-db", type=Path, help="Year meta-index DuckDB (cc_pointers_<year>.duckdb)"
+    )
+    src.add_argument(
+        "--collection-db", type=Path, help="Single collection DuckDB (CC-MAIN-....duckdb)"
+    )
 
-    ap.add_argument("--year", type=str, default=None, help="Restrict to a year (only used with --master-db)")
+    ap.add_argument(
+        "--year", type=str, default=None, help="Restrict to a year (only used with --master-db)"
+    )
 
     ap.add_argument(
         "--parquet-root",
@@ -265,11 +285,25 @@ def main() -> int:
         help="Parquet root (default: /storage/ccindex_parquet)",
     )
 
-    ap.add_argument("--domain", required=True, type=str, help="Domain or URL (e.g. 18f.gov or https://18f.gov)")
+    ap.add_argument(
+        "--domain", required=True, type=str, help="Domain or URL (e.g. 18f.gov or https://18f.gov)"
+    )
 
-    ap.add_argument("--max-parquet-files", type=int, default=200, help="Cap number of Parquet shards scanned per collection")
-    ap.add_argument("--max-matches", type=int, default=200, help="Stop after emitting this many candidate WARC pointers")
-    ap.add_argument("--per-parquet-limit", type=int, default=2000, help="Cap matches read per Parquet shard")
+    ap.add_argument(
+        "--max-parquet-files",
+        type=int,
+        default=200,
+        help="Cap number of Parquet shards scanned per collection",
+    )
+    ap.add_argument(
+        "--max-matches",
+        type=int,
+        default=200,
+        help="Stop after emitting this many candidate WARC pointers",
+    )
+    ap.add_argument(
+        "--per-parquet-limit", type=int, default=2000, help="Cap matches read per Parquet shard"
+    )
 
     ap.add_argument("--verbose", action="store_true", default=False)
 
@@ -297,7 +331,13 @@ def main() -> int:
         coll_db = Path(args.collection_db).expanduser().resolve()
         # Collection name is derived from DB name to locate Parquet layout.
         collection_name = coll_db.stem.replace("cc_pointers_", "")
-        collections = [CollectionRef(year=_collection_year(collection_name), collection=collection_name, collection_db_path=coll_db)]
+        collections = [
+            CollectionRef(
+                year=_collection_year(collection_name),
+                collection=collection_name,
+                collection_db_path=coll_db,
+            )
+        ]
         meta_source = f"collection-db:{coll_db}"
     elif args.year_db:
         year_db = Path(args.year_db).expanduser().resolve()
@@ -344,7 +384,9 @@ def main() -> int:
             continue
 
         if args.verbose:
-            _eprint(f"collection={cref.collection} db={collection_db} parquet_shards={len(parquet_relpaths)}")
+            _eprint(
+                f"collection={cref.collection} db={collection_db} parquet_shards={len(parquet_relpaths)}"
+            )
 
         for rel in parquet_relpaths:
             if emitted >= int(args.max_matches):
@@ -358,7 +400,9 @@ def main() -> int:
 
             remaining = int(args.max_matches) - emitted
             per_file_limit = min(int(args.per_parquet_limit), remaining)
-            for rec in _iter_warc_candidates_from_parquet(parquet_path, host_rev_prefix, limit=per_file_limit):
+            for rec in _iter_warc_candidates_from_parquet(
+                parquet_path, host_rev_prefix, limit=per_file_limit
+            ):
                 _print_jsonl([rec])
                 emitted += 1
                 if emitted >= int(args.max_matches):

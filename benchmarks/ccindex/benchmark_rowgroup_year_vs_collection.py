@@ -87,7 +87,9 @@ def _stats(xs: Sequence[float]) -> Tuple[float, float, float, float]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Benchmark per-year vs per-collection rowgroup lookups")
+    ap = argparse.ArgumentParser(
+        description="Benchmark per-year vs per-collection rowgroup lookups"
+    )
     ap.add_argument("--year", required=True, help="Year, e.g. 2024")
     ap.add_argument(
         "--collection-dir",
@@ -101,7 +103,9 @@ def main() -> int:
     )
     ap.add_argument("--samples", type=int, default=100, help="Number of host_rev values to test")
     ap.add_argument("--repeats", type=int, default=3, help="Repeat each query N times")
-    ap.add_argument("--workers", type=int, default=8, help="Parallel workers for per-collection lookups")
+    ap.add_argument(
+        "--workers", type=int, default=8, help="Parallel workers for per-collection lookups"
+    )
     ap.add_argument("--seed", type=int, default=1337, help="Random seed")
     args = ap.parse_args()
 
@@ -162,9 +166,13 @@ def main() -> int:
         print(f"workers:      {int(args.workers)}")
         print()
         print("Per-year DB lookup")
-        print(f"  n={len(year_times)}  mean={y_mean:.3f}ms  median={y_med:.3f}ms  min={y_min:.3f}ms  max={y_max:.3f}ms")
+        print(
+            f"  n={len(year_times)}  mean={y_mean:.3f}ms  median={y_med:.3f}ms  min={y_min:.3f}ms  max={y_max:.3f}ms"
+        )
         print("Per-collection DB lookup (parallel)")
-        print(f"  n={len(coll_times)}  mean={c_mean:.3f}ms  median={c_med:.3f}ms  min={c_min:.3f}ms  max={c_max:.3f}ms")
+        print(
+            f"  n={len(coll_times)}  mean={c_mean:.3f}ms  median={c_med:.3f}ms  min={c_min:.3f}ms  max={c_max:.3f}ms"
+        )
         print()
         print(f"Rows fetched: year={year_rows} collection={coll_rows}")
 

@@ -64,11 +64,16 @@ def _poll_text_contains(page, selector: str, needles: list[str], *, timeout_s: f
         if any(n in last for n in needles):
             return last
         time.sleep(0.2)
-    raise AssertionError(f"Timed out waiting for {selector} to contain one of {needles}. Last text: {last!r}")
+    raise AssertionError(
+        f"Timed out waiting for {selector} to contain one of {needles}. Last text: {last!r}"
+    )
 
 
 def _require_real_ccindex_assets() -> tuple[Path, Path]:
-    master_db = Path(os.getenv("DASHBOARD_E2E_MASTER_DB") or "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
+    master_db = Path(
+        os.getenv("DASHBOARD_E2E_MASTER_DB")
+        or "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"
+    )
     parquet_root = Path(os.getenv("DASHBOARD_E2E_PARQUET_ROOT") or "/storage/ccindex_parquet")
     if not master_db.exists():
         pytest.skip(f"Missing master db: {master_db} (set DASHBOARD_E2E_MASTER_DB)")
@@ -136,6 +141,8 @@ def dashboard_real(tmp_path: Path) -> tuple[str, subprocess.Popen[str], Path, Pa
                 out = ""
             if out:
                 (run_dir / "dashboard_stdout.log").write_text(out)
+
+
 def _import_sync_playwright() -> "object":
     try:
         from playwright.sync_api import sync_playwright  # type: ignore
@@ -221,7 +228,9 @@ def test_dashboard_all_panels_screenshots_e2e(dashboard_real, tmp_path: Path) ->
             (run_dir / "warc_files" / "f.warc.gz").write_bytes(b"y" * 12)
 
             page.goto(f"{base_url}/settings", wait_until="domcontentloaded")
-            _poll_text_contains(page, "#cacheStats", ["range_cache:", "cache stats error"], timeout_s=30.0)
+            _poll_text_contains(
+                page, "#cacheStats", ["range_cache:", "cache stats error"], timeout_s=30.0
+            )
             page.screenshot(path=str(shots_dir / "04_settings.png"), full_page=True)
 
             page.select_option("#default_cache_mode", "range")
@@ -231,9 +240,13 @@ def test_dashboard_all_panels_screenshots_e2e(dashboard_real, tmp_path: Path) ->
             page.screenshot(path=str(shots_dir / "05_settings_saved.png"), full_page=True)
 
             page.click("#clearRangeCacheBtn")
-            _poll_text_contains(page, "#cacheStats", ["range_cache: 0 items", "clear error"], timeout_s=30.0)
+            _poll_text_contains(
+                page, "#cacheStats", ["range_cache: 0 items", "clear error"], timeout_s=30.0
+            )
             page.click("#clearFullCacheBtn")
-            _poll_text_contains(page, "#cacheStats", ["full_warc_cache: 0 items", "clear error"], timeout_s=30.0)
+            _poll_text_contains(
+                page, "#cacheStats", ["full_warc_cache: 0 items", "clear error"], timeout_s=30.0
+            )
             page.screenshot(path=str(shots_dir / "06_settings_cache_cleared.png"), full_page=True)
 
             # 3) Index (orchestrator console)
@@ -258,7 +271,10 @@ def test_dashboard_all_panels_screenshots_e2e(dashboard_real, tmp_path: Path) ->
 
             # 4) Search (Brave) is optional because it requires a key.
             if (os.getenv("BRAVE_SEARCH_API_KEY") or "").strip():
-                page.goto(f"{base_url}/discover?parquet_root={parquet_root}", wait_until="domcontentloaded")
+                page.goto(
+                    f"{base_url}/discover?parquet_root={parquet_root}",
+                    wait_until="domcontentloaded",
+                )
                 page.fill("#dq", brave_query)
                 page.click("#discoverForm button[type='submit']")
                 page.wait_for_function(
@@ -270,7 +286,9 @@ def test_dashboard_all_panels_screenshots_e2e(dashboard_real, tmp_path: Path) ->
                 assert "ok" in status_text, f"Brave search failed: {status_text}"
             else:
                 page.goto(f"{base_url}/discover", wait_until="domcontentloaded")
-                page.screenshot(path=str(shots_dir / "10_search_brave_skipped_no_key.png"), full_page=True)
+                page.screenshot(
+                    path=str(shots_dir / "10_search_brave_skipped_no_key.png"), full_page=True
+                )
 
             assert page_errors == [], f"Page errors: {page_errors}"
         finally:

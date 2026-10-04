@@ -189,7 +189,9 @@ def main(argv: list[str] | None = None) -> int:
         print("=" * 80)
         print()
 
-        missing_from_index = set(actual_files.keys()) - {str(parquet_root / f) for f in indexed_files}
+        missing_from_index = set(actual_files.keys()) - {
+            str(parquet_root / f) for f in indexed_files
+        }
         extra_in_index = {str(parquet_root / f) for f in indexed_files} - set(actual_files.keys())
 
         if not missing_from_index and not extra_in_index and indexed_count == actual_count:

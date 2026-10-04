@@ -39,6 +39,7 @@ try:
         get_hf_parquet_rowgroup,
         resolve_parquet_path_with_hf_fallback,
     )
+
     _HF_AVAILABLE = True
 except ImportError:
     _HF_AVAILABLE = False
@@ -54,11 +55,29 @@ _DOMAIN_POINTER_INDEX_AVAILABLE: Optional[bool] = None
 
 
 def _domain_pointer_index_dir() -> Path:
-    return Path((os.environ.get("CC_DOMAIN_POINTER_INDEX_DIR") or "/storage/ccindex_duckdb/cc_pointers_by_collection")).expanduser().resolve()
+    return (
+        Path(
+            (
+                os.environ.get("CC_DOMAIN_POINTER_INDEX_DIR")
+                or "/storage/ccindex_duckdb/cc_pointers_by_collection"
+            )
+        )
+        .expanduser()
+        .resolve()
+    )
 
 
 def _domain_pointer_parquet_root() -> Path:
-    return Path((os.environ.get("CC_DOMAIN_POINTER_PARQUET_ROOT") or "/storage/ccindex_parquet/cc_pointers_by_collection")).expanduser().resolve()
+    return (
+        Path(
+            (
+                os.environ.get("CC_DOMAIN_POINTER_PARQUET_ROOT")
+                or "/storage/ccindex_parquet/cc_pointers_by_collection"
+            )
+        )
+        .expanduser()
+        .resolve()
+    )
 
 
 def _rowgroup_slice_index_dir() -> Path:
@@ -93,7 +112,11 @@ def _rowgroup_slice_year_index_dir() -> Path:
 
 @lru_cache(maxsize=64)
 def _rowgroup_year_index_db_for_year(year: str) -> Optional[Path]:
-    env_db = (os.environ.get("BRAVE_RESOLVE_ROWGROUP_YEAR_DB") or os.environ.get("CC_DOMAIN_ROWGROUP_YEAR_DB") or "").strip()
+    env_db = (
+        os.environ.get("BRAVE_RESOLVE_ROWGROUP_YEAR_DB")
+        or os.environ.get("CC_DOMAIN_ROWGROUP_YEAR_DB")
+        or ""
+    ).strip()
     if env_db:
         try:
             p = Path(env_db).expanduser().resolve()
@@ -126,7 +149,11 @@ def _rowgroup_year_index_db_for_year(year: str) -> Optional[Path]:
 def _rowgroup_index_db_for_collection(collection: str) -> Optional[Path]:
     """Best-effort locate the rowgroup slice index DB for a collection."""
 
-    env_db = (os.environ.get("BRAVE_RESOLVE_ROWGROUP_INDEX_DB") or os.environ.get("CC_DOMAIN_ROWGROUP_INDEX_DB") or "").strip()
+    env_db = (
+        os.environ.get("BRAVE_RESOLVE_ROWGROUP_INDEX_DB")
+        or os.environ.get("CC_DOMAIN_ROWGROUP_INDEX_DB")
+        or ""
+    ).strip()
     if env_db:
         try:
             p = Path(env_db).expanduser().resolve()
@@ -155,7 +182,9 @@ def _rowgroup_index_db_for_collection(collection: str) -> Optional[Path]:
 
 
 try:
-    _RG_SEGMENT_CACHE_MAX = int((os.environ.get("BRAVE_RESOLVE_ROWGROUP_SEGMENT_CACHE") or "256").strip())
+    _RG_SEGMENT_CACHE_MAX = int(
+        (os.environ.get("BRAVE_RESOLVE_ROWGROUP_SEGMENT_CACHE") or "256").strip()
+    )
 except Exception:
     _RG_SEGMENT_CACHE_MAX = 256
 _RG_SEGMENT_CACHE_MAX = max(1, min(4096, int(_RG_SEGMENT_CACHE_MAX)))
@@ -209,7 +238,11 @@ def _rowgroup_segments_cached(
         if "host_rev" not in cols_rg:
             return ((), "host_rev_missing")
 
-        if "row_group" not in cols_rg or "dom_rg_row_start" not in cols_rg or "dom_rg_row_end" not in cols_rg:
+        if (
+            "row_group" not in cols_rg
+            or "dom_rg_row_start" not in cols_rg
+            or "dom_rg_row_end" not in cols_rg
+        ):
             return ((), "rowgroup_cols_missing")
 
         if "source_path" not in cols_rg and "parquet_relpath" not in cols_rg:
@@ -253,7 +286,9 @@ def _rowgroup_segments_cached(
 
 
 try:
-    _RG_YEAR_SEGMENT_CACHE_MAX = int((os.environ.get("BRAVE_RESOLVE_ROWGROUP_YEAR_SEGMENT_CACHE") or "128").strip())
+    _RG_YEAR_SEGMENT_CACHE_MAX = int(
+        (os.environ.get("BRAVE_RESOLVE_ROWGROUP_YEAR_SEGMENT_CACHE") or "128").strip()
+    )
 except Exception:
     _RG_YEAR_SEGMENT_CACHE_MAX = 128
 _RG_YEAR_SEGMENT_CACHE_MAX = max(1, min(1024, int(_RG_YEAR_SEGMENT_CACHE_MAX)))
@@ -316,7 +351,11 @@ def _rowgroup_segments_by_year_cached(
             return ((), "collection_missing")
         if "host_rev" not in cols_rg:
             return ((), "host_rev_missing")
-        if "row_group" not in cols_rg or "dom_rg_row_start" not in cols_rg or "dom_rg_row_end" not in cols_rg:
+        if (
+            "row_group" not in cols_rg
+            or "dom_rg_row_start" not in cols_rg
+            or "dom_rg_row_end" not in cols_rg
+        ):
             return ((), "rowgroup_cols_missing")
         if "source_path" not in cols_rg and "parquet_relpath" not in cols_rg:
             return ((), "path_cols_missing")
@@ -755,7 +794,8 @@ def brave_resolve_cache_stats() -> Dict[str, object]:
         "oldest_ts": oldest_ts,
         "newest_ts": newest_ts,
         "ttl_s": int((os.environ.get("BRAVE_RESOLVE_CACHE_TTL_S") or "86400").strip() or "86400"),
-        "disabled": (os.environ.get("BRAVE_RESOLVE_CACHE_DISABLE") or "").strip().lower() in {"1", "true", "yes", "on"},
+        "disabled": (os.environ.get("BRAVE_RESOLVE_CACHE_DISABLE") or "").strip().lower()
+        in {"1", "true", "yes", "on"},
     }
 
 
@@ -775,7 +815,12 @@ def clear_brave_resolve_cache() -> Dict[str, object]:
             except Exception:
                 try:
                     path.write_text("{}\n", encoding="utf-8")
-                    return {"deleted": False, "freed_bytes": freed, "path": str(path), "truncated": True}
+                    return {
+                        "deleted": False,
+                        "freed_bytes": freed,
+                        "path": str(path),
+                        "truncated": True,
+                    }
                 except Exception:
                     return {"deleted": False, "freed_bytes": 0, "path": str(path)}
         return {"deleted": False, "freed_bytes": 0, "path": str(path)}
@@ -831,6 +876,7 @@ def _maybe_evict_oldest(cache: Dict[str, dict], *, max_entries: int) -> Dict[str
     if max_entries <= 0 or len(cache) <= max_entries:
         return cache
     try:
+
         def _ts(kv) -> float:
             v = kv[1]
             if isinstance(v, dict) and isinstance(v.get("ts"), (int, float)):
@@ -850,8 +896,7 @@ def _require_duckdb() -> "object":
         return duckdb
     except Exception as e:  # pragma: no cover
         raise RuntimeError(
-            "duckdb is required for ccindex operations. "
-            "Install with: pip install -e '.[ccindex]'"
+            "duckdb is required for ccindex operations. Install with: pip install -e '.[ccindex]'"
         ) from e
 
 
@@ -885,7 +930,9 @@ def _duckdb_table_columns(con: "object", table_name: str) -> set[str]:
         return set()
 
 
-def load_collections_from_master(master_db: Path, year: Optional[str] = None) -> List[CollectionRef]:
+def load_collections_from_master(
+    master_db: Path, year: Optional[str] = None
+) -> List[CollectionRef]:
     duckdb = _require_duckdb()
     con = duckdb.connect(str(master_db), read_only=True)
     try:
@@ -927,7 +974,9 @@ def load_collections_from_master(master_db: Path, year: Optional[str] = None) ->
 
 def list_collections(
     *,
-    master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
+    master_db: Optional[Path] = Path(
+        "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"
+    ),
     year_db: Optional[Path] = None,
     year: Optional[str] = None,
 ) -> List[CollectionRef]:
@@ -1169,7 +1218,9 @@ def iter_domain_records_via_meta_indexes(
     domain_or_url: str,
     *,
     parquet_root: Path = Path("/storage/ccindex_parquet"),
-    master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
+    master_db: Optional[Path] = Path(
+        "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"
+    ),
     year_db: Optional[Path] = None,
     collection_db: Optional[Path] = None,
     year: Optional[str] = None,
@@ -1204,7 +1255,9 @@ def iter_domain_records_via_meta_indexes(
             return default
         return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
-    remote_meta_enabled = bool(hf_remote_meta) if hf_remote_meta is not None else _env_true("HF_META_REMOTE", False)
+    remote_meta_enabled = (
+        bool(hf_remote_meta) if hf_remote_meta is not None else _env_true("HF_META_REMOTE", False)
+    )
 
     parquet_root = Path(parquet_root).expanduser().resolve()
     if not remote_meta_enabled and not parquet_root.exists():
@@ -1214,7 +1267,9 @@ def iter_domain_records_via_meta_indexes(
     hf_sql_reader = None
     if remote_meta_enabled:
         if not _HF_AVAILABLE:
-            raise RuntimeError("HF remote meta-index mode requested but HuggingFace adapter is unavailable")
+            raise RuntimeError(
+                "HF remote meta-index mode requested but HuggingFace adapter is unavailable"
+            )
         hf_sql_reader = HFMetaIndexSQLReader(
             index_dataset_name=hf_meta_index_dataset,
             pointers_dataset_name=hf_pointer_dataset,
@@ -1229,9 +1284,7 @@ def iter_domain_records_via_meta_indexes(
             )
             for y, coll in coll_rows
         ]
-        meta_source = (
-            f"hf-remote:{hf_sql_reader.index_dataset_name}@{hf_sql_reader.revision}"
-        )
+        meta_source = f"hf-remote:{hf_sql_reader.index_dataset_name}@{hf_sql_reader.revision}"
     elif collection_db is not None:
         coll_db = Path(collection_db).expanduser().resolve()
         collection_name = coll_db.stem.replace("cc_pointers_", "")
@@ -1249,7 +1302,9 @@ def iter_domain_records_via_meta_indexes(
         meta_source = f"year-db:{ydb}"
     else:
         if master_db is None:
-            raise ValueError("master_db must be set when year_db and collection_db are not provided")
+            raise ValueError(
+                "master_db must be set when year_db and collection_db are not provided"
+            )
         mdb = Path(master_db).expanduser().resolve()
         collections = load_collections_from_master(mdb, year)
         meta_source = f"master-db:{mdb}"
@@ -1279,7 +1334,9 @@ def iter_domain_records_via_meta_indexes(
             break
 
         if remote_meta_enabled:
-            parquet_relpaths = hf_sql_reader.parquet_relpaths_for_domain(cref.collection, host_rev_prefix)
+            parquet_relpaths = hf_sql_reader.parquet_relpaths_for_domain(
+                cref.collection, host_rev_prefix
+            )
         else:
             collection_db_path = cref.collection_db_path
             if not collection_db_path.exists():
@@ -1341,7 +1398,9 @@ def search_domain_via_meta_indexes(
     domain_or_url: str,
     *,
     parquet_root: Path = Path("/storage/ccindex_parquet"),
-    master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
+    master_db: Optional[Path] = Path(
+        "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"
+    ),
     year_db: Optional[Path] = None,
     collection_db: Optional[Path] = None,
     year: Optional[str] = None,
@@ -1438,7 +1497,9 @@ def brave_web_search(
     This function adapts results into the stable `BraveWebResult` dataclass.
     """
 
-    from common_crawl_search_engine.ccsearch.brave_search import brave_web_search as _brave_web_search
+    from common_crawl_search_engine.ccsearch.brave_search import (
+        brave_web_search as _brave_web_search,
+    )
 
     items = _brave_web_search(
         query,
@@ -1465,7 +1526,9 @@ def resolve_urls_to_ccindex(
     urls: Sequence[str],
     *,
     parquet_root: Path = Path("/storage/ccindex_parquet"),
-    master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
+    master_db: Optional[Path] = Path(
+        "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"
+    ),
     year: Optional[str] = None,
     max_matches_per_domain: int = 400,
     per_url_limit: int = 5,
@@ -1495,7 +1558,12 @@ def resolve_urls_to_ccindex(
             return
         try:
             state_dir = Path((os.environ.get("CCINDEX_STATE_DIR") or "state").strip() or "state")
-            p = Path((os.environ.get("CCINDEX_EVENT_LOG_PATH") or str(state_dir / "ccindex_events.jsonl")).strip())
+            p = Path(
+                (
+                    os.environ.get("CCINDEX_EVENT_LOG_PATH")
+                    or str(state_dir / "ccindex_events.jsonl")
+                ).strip()
+            )
             p.parent.mkdir(parents=True, exist_ok=True)
             evt = dict(evt)
             evt.setdefault("ts", time.time())
@@ -1517,7 +1585,9 @@ def resolve_urls_to_ccindex(
     if not domain_to_urls:
         return {u: [] for u in want}
 
-    strategy = (os.environ.get("BRAVE_RESOLVE_STRATEGY") or "domain_url_join_parallel").strip().lower()
+    strategy = (
+        (os.environ.get("BRAVE_RESOLVE_STRATEGY") or "domain_url_join_parallel").strip().lower()
+    )
     if strategy in {"url_join", "domain_url_join", "domain_url_join_parallel"}:
         resolve_strategy = "domain_url_join_parallel"
     else:
@@ -1596,7 +1666,14 @@ def resolve_urls_to_ccindex(
             )
         except Exception as e:
             dt = time.perf_counter() - t_dom0
-            _emit({"event": "resolve_domain_error", "domain": dom, "elapsed_s": float(dt), "error": str(e)})
+            _emit(
+                {
+                    "event": "resolve_domain_error",
+                    "domain": dom,
+                    "elapsed_s": float(dt),
+                    "error": str(e),
+                }
+            )
             with _dom_lock:
                 _dom_details[dom] = {
                     "domain": dom,
@@ -1736,7 +1813,9 @@ def resolve_urls_to_ccindex(
             setup_s = time.perf_counter() - t_setup0
 
             def _parquet_columns(pq_path: Path) -> set[str]:
-                rows = con.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(pq_path)]).fetchall()
+                rows = con.execute(
+                    "DESCRIBE SELECT * FROM read_parquet(?)", [str(pq_path)]
+                ).fetchall()
                 return {str(r[0]) for r in rows if r and r[0]}
 
             def _parquet_columns_for_batch(batch: Sequence[Path]) -> set[str]:
@@ -1762,13 +1841,17 @@ def resolve_urls_to_ccindex(
 
             # union_by_name is safer across schema drift, but can be slower.
             # If your pointer Parquet schema is consistent, disabling it may reduce query time.
-            union_by_name_env = (os.environ.get("BRAVE_RESOLVE_UNION_BY_NAME") or "1").strip().lower()
+            union_by_name_env = (
+                (os.environ.get("BRAVE_RESOLVE_UNION_BY_NAME") or "1").strip().lower()
+            )
             union_by_name = union_by_name_env not in {"0", "false", "no", "off"}
             union_by_name_sql = "true" if union_by_name else "false"
 
             # Optional fast path: use a domain->rowgroup slice index (cc_domain_rowgroups)
             # to read only relevant rowgroups via PyArrow.
-            rg_mode = (os.environ.get("BRAVE_RESOLVE_ROWGROUP_SLICE_MODE") or "auto").strip().lower()
+            rg_mode = (
+                (os.environ.get("BRAVE_RESOLVE_ROWGROUP_SLICE_MODE") or "auto").strip().lower()
+            )
             if rg_mode not in {"auto", "on", "off"}:
                 rg_mode = "off"
 
@@ -1794,11 +1877,29 @@ def resolve_urls_to_ccindex(
                 local_collections_scanned = 0
 
                 if not host_revs_for_domain:
-                    _emit({"event": "rowgroup_slice_skip", "collection": str(coll), "reason": "no_host_revs"})
-                    return ({}, {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0})
+                    _emit(
+                        {
+                            "event": "rowgroup_slice_skip",
+                            "collection": str(coll),
+                            "reason": "no_host_revs",
+                        }
+                    )
+                    return (
+                        {},
+                        {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0},
+                    )
                 if not variant_to_requested:
-                    _emit({"event": "rowgroup_slice_skip", "collection": str(coll), "reason": "no_variants"})
-                    return ({}, {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0})
+                    _emit(
+                        {
+                            "event": "rowgroup_slice_skip",
+                            "collection": str(coll),
+                            "reason": "no_variants",
+                        }
+                    )
+                    return (
+                        {},
+                        {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0},
+                    )
 
                 # Import lazily so this path has zero overhead unless enabled.
                 try:
@@ -1806,24 +1907,64 @@ def resolve_urls_to_ccindex(
                     import pyarrow.compute as pc  # type: ignore
                     import pyarrow.parquet as pq  # type: ignore
                 except Exception:
-                    _emit({"event": "rowgroup_slice_skip", "collection": str(coll), "reason": "pyarrow_missing"})
-                    return ({}, {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0})
+                    _emit(
+                        {
+                            "event": "rowgroup_slice_skip",
+                            "collection": str(coll),
+                            "reason": "pyarrow_missing",
+                        }
+                    )
+                    return (
+                        {},
+                        {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0},
+                    )
 
                 if seg_rows_override is not None:
                     seg_rows = seg_rows_override
                 else:
-                    seg_rows, seg_reason = _rowgroup_segments_cached(str(coll), tuple(host_revs_for_domain))
+                    seg_rows, seg_reason = _rowgroup_segments_cached(
+                        str(coll), tuple(host_revs_for_domain)
+                    )
                     if seg_reason:
-                        _emit({"event": "rowgroup_slice_skip", "collection": str(coll), "reason": seg_reason})
-                        return ({}, {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0})
+                        _emit(
+                            {
+                                "event": "rowgroup_slice_skip",
+                                "collection": str(coll),
+                                "reason": seg_reason,
+                            }
+                        )
+                        return (
+                            {},
+                            {
+                                "rows_returned": 0,
+                                "parquet_files_scanned": 0,
+                                "collections_scanned": 0,
+                            },
+                        )
                     if not seg_rows:
-                        _emit({"event": "rowgroup_slice_skip", "collection": str(coll), "reason": "no_segments"})
-                        return ({}, {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0})
+                        _emit(
+                            {
+                                "event": "rowgroup_slice_skip",
+                                "collection": str(coll),
+                                "reason": "no_segments",
+                            }
+                        )
+                        return (
+                            {},
+                            {
+                                "rows_returned": 0,
+                                "parquet_files_scanned": 0,
+                                "collections_scanned": 0,
+                            },
+                        )
 
                 parquet_dir = get_collection_parquet_dir(parquet_root, coll)
                 variant_urls = list(variant_to_requested.keys())
                 if not variant_urls:
-                    return ({}, {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0})
+                    return (
+                        {},
+                        {"rows_returned": 0, "parquet_files_scanned": 0, "collections_scanned": 0},
+                    )
                 variant_arr = pa.array(variant_urls)
 
                 opened_files = 0
@@ -1835,7 +1976,11 @@ def resolve_urls_to_ccindex(
                 # HuggingFace reader for fallback when local files don't exist
                 hf_reader: Optional[HFRowGroupReader] = None
                 hf_files: Set[str] = set()  # Track which files are from HuggingFace
-                if _HF_AVAILABLE and os.environ.get("HF_ENABLE_FALLBACK", "true").lower() not in ("false", "0", "no"):
+                if _HF_AVAILABLE and os.environ.get("HF_ENABLE_FALLBACK", "true").lower() not in (
+                    "false",
+                    "0",
+                    "no",
+                ):
                     try:
                         hf_reader = HFRowGroupReader()
                     except Exception:
@@ -1845,7 +1990,13 @@ def resolve_urls_to_ccindex(
                 file_groups: "Dict[str, Dict[int, List[Tuple[int, int]]]]" = {}
                 hf_file_groups: "Dict[str, Dict[int, List[Tuple[int, int]]]]" = {}  # HuggingFace file groups
 
-                for source_path_raw, parquet_rel_raw, row_group, dom_rg_start, dom_rg_end in seg_rows:
+                for (
+                    source_path_raw,
+                    parquet_rel_raw,
+                    row_group,
+                    dom_rg_start,
+                    dom_rg_end,
+                ) in seg_rows:
                     pq_path: Optional[Path] = None
                     sp = str(source_path_raw or "").strip()
                     rel = str(parquet_rel_raw or "").strip()
@@ -1959,10 +2110,14 @@ def resolve_urls_to_ccindex(
                             shard_file = None
 
                         def _col_pylist(colname: str) -> Optional[List[object]]:
-                            if colname not in avail or colname not in {f.name for f in t_hit.schema}:
+                            if colname not in avail or colname not in {
+                                f.name for f in t_hit.schema
+                            }:
                                 return None
                             try:
-                                return t_hit.column(t_hit.schema.get_field_index(colname)).to_pylist()
+                                return t_hit.column(
+                                    t_hit.schema.get_field_index(colname)
+                                ).to_pylist()
                             except Exception:
                                 return None
 
@@ -1985,25 +2140,43 @@ def resolve_urls_to_ccindex(
                                 "collection": str(coll),
                                 "shard_file": shard_file,
                                 "url": str(hit_url),
-                                "timestamp": (ts_list[j] if ts_list is not None and j < len(ts_list) else None),
+                                "timestamp": (
+                                    ts_list[j] if ts_list is not None and j < len(ts_list) else None
+                                ),
                                 "status": (
                                     int(status_list[j])
-                                    if status_list is not None and j < len(status_list) and status_list[j] is not None
+                                    if status_list is not None
+                                    and j < len(status_list)
+                                    and status_list[j] is not None
                                     else None
                                 ),
-                                "mime": (mime_list[j] if mime_list is not None and j < len(mime_list) else None),
-                                "digest": (digest_list[j] if digest_list is not None and j < len(digest_list) else None),
+                                "mime": (
+                                    mime_list[j]
+                                    if mime_list is not None and j < len(mime_list)
+                                    else None
+                                ),
+                                "digest": (
+                                    digest_list[j]
+                                    if digest_list is not None and j < len(digest_list)
+                                    else None
+                                ),
                                 "warc_filename": (
-                                    warc_fn_list[j] if warc_fn_list is not None and j < len(warc_fn_list) else None
+                                    warc_fn_list[j]
+                                    if warc_fn_list is not None and j < len(warc_fn_list)
+                                    else None
                                 ),
                                 "warc_offset": (
                                     int(warc_off_list[j])
-                                    if warc_off_list is not None and j < len(warc_off_list) and warc_off_list[j] is not None
+                                    if warc_off_list is not None
+                                    and j < len(warc_off_list)
+                                    and warc_off_list[j] is not None
                                     else None
                                 ),
                                 "warc_length": (
                                     int(warc_len_list[j])
-                                    if warc_len_list is not None and j < len(warc_len_list) and warc_len_list[j] is not None
+                                    if warc_len_list is not None
+                                    and j < len(warc_len_list)
+                                    and warc_len_list[j] is not None
                                     else None
                                 ),
                                 "parquet_path": str(pq_path),
@@ -2064,7 +2237,9 @@ def resolve_urls_to_ccindex(
                         parquet_filename = Path(hf_rel).name
 
                         # Get parquet file from HuggingFace
-                        pf = hf_reader._get_parquet_file_from_dataset(hf_collection, parquet_filename)
+                        pf = hf_reader._get_parquet_file_from_dataset(
+                            hf_collection, parquet_filename
+                        )
                         if pf is None:
                             continue
 
@@ -2090,7 +2265,9 @@ def resolve_urls_to_ccindex(
                         for rg, ranges in rg_map.items():
                             ranges = _coalesce_ranges(ranges)
                             try:
-                                t_rg = hf_reader.read_rowgroup(hf_collection, parquet_filename, int(rg), columns=cols_to_read)
+                                t_rg = hf_reader.read_rowgroup(
+                                    hf_collection, parquet_filename, int(rg), columns=cols_to_read
+                                )
                                 if t_rg is None:
                                     continue
                                 rowgroups_read += 1
@@ -2119,7 +2296,9 @@ def resolve_urls_to_ccindex(
                 )
 
             try:
-                batch_sz = int((os.environ.get("BRAVE_RESOLVE_PARQUET_BATCH") or "16").strip() or "16")
+                batch_sz = int(
+                    (os.environ.get("BRAVE_RESOLVE_PARQUET_BATCH") or "16").strip() or "16"
+                )
             except Exception:
                 batch_sz = 16
             batch_sz = max(1, min(64, int(batch_sz)))
@@ -2167,7 +2346,7 @@ def resolve_urls_to_ccindex(
 
                         values_sql = ",".join(["(?, ?)"] * len(variant_rows))
                         params: List[object] = []
-                        for (u, req) in variant_rows:
+                        for u, req in variant_rows:
                             params.append(u)
                             params.append(req)
 
@@ -2229,8 +2408,12 @@ def resolve_urls_to_ccindex(
                                 "mime": mime,
                                 "digest": digest,
                                 "warc_filename": warc_filename,
-                                "warc_offset": int(warc_offset) if warc_offset is not None else None,
-                                "warc_length": int(warc_length) if warc_length is not None else None,
+                                "warc_offset": int(warc_offset)
+                                if warc_offset is not None
+                                else None,
+                                "warc_length": int(warc_length)
+                                if warc_length is not None
+                                else None,
                                 "parquet_path": "",
                             }
                             matches[requested_url].append(rec)
@@ -2312,7 +2495,7 @@ def resolve_urls_to_ccindex(
                         # Use a VALUES CTE so we can keep the connection read-only.
                         values_sql = ",".join(["(?, ?)"] * len(variant_rows))
                         params: List[object] = []
-                        for (u, req) in variant_rows:
+                        for u, req in variant_rows:
                             params.append(u)
                             params.append(req)
 
@@ -2366,7 +2549,9 @@ def resolve_urls_to_ccindex(
                             ) = row
 
                             rec = {
-                                "collection": (collection if collection is not None else str(cref.collection)),
+                                "collection": (
+                                    collection if collection is not None else str(cref.collection)
+                                ),
                                 "shard_file": shard_file,
                                 "url": url,
                                 "timestamp": ts,
@@ -2374,8 +2559,12 @@ def resolve_urls_to_ccindex(
                                 "mime": mime,
                                 "digest": digest,
                                 "warc_filename": warc_filename,
-                                "warc_offset": int(warc_offset) if warc_offset is not None else None,
-                                "warc_length": int(warc_length) if warc_length is not None else None,
+                                "warc_offset": int(warc_offset)
+                                if warc_offset is not None
+                                else None,
+                                "warc_length": int(warc_length)
+                                if warc_length is not None
+                                else None,
                                 "parquet_path": "",
                             }
                             matches[requested_url].append(rec)
@@ -2444,7 +2633,14 @@ def resolve_urls_to_ccindex(
                         "batches": int(batches),
                         "rows_returned": int(rows_returned),
                     }
-                return (dom, matches, int(collections_scanned), int(parquet_files_scanned), float(dt), None)
+                return (
+                    dom,
+                    matches,
+                    int(collections_scanned),
+                    int(parquet_files_scanned),
+                    float(dt),
+                    None,
+                )
 
             # Shared worker setting for per-collection lookups.
             try:
@@ -2456,7 +2652,9 @@ def resolve_urls_to_ccindex(
 
             # Optional fast path: use the prebuilt domain pointer indexes (domain -> parquet_file + row range)
             # to avoid per-collection cc_domain_shards relpath lookups.
-            dp_mode = (os.environ.get("BRAVE_RESOLVE_DOMAIN_POINTERS_MODE") or "auto").strip().lower()
+            dp_mode = (
+                (os.environ.get("BRAVE_RESOLVE_DOMAIN_POINTERS_MODE") or "auto").strip().lower()
+            )
             if dp_mode not in {"auto", "on", "off"}:
                 dp_mode = "auto"
 
@@ -2470,7 +2668,9 @@ def resolve_urls_to_ccindex(
                 if _DOMAIN_POINTER_INDEX_AVAILABLE is None:
                     try:
                         idir = _domain_pointer_index_dir()
-                        _DOMAIN_POINTER_INDEX_AVAILABLE = bool(idir.exists() and (idir / "master_index.duckdb").exists())
+                        _DOMAIN_POINTER_INDEX_AVAILABLE = bool(
+                            idir.exists() and (idir / "master_index.duckdb").exists()
+                        )
                     except Exception:
                         _DOMAIN_POINTER_INDEX_AVAILABLE = False
                 dp_enabled = bool(_DOMAIN_POINTER_INDEX_AVAILABLE)
@@ -2545,7 +2745,11 @@ def resolve_urls_to_ccindex(
                 )
                 if not collections:
                     return (dom, matches, 0, 0, 0.0, "no_rowgroup_collections")
-            if rg_enabled and host_revs and not all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls):
+            if (
+                rg_enabled
+                and host_revs
+                and not all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls)
+            ):
                 try:
                     variant_to_requested: Dict[str, List[str]] = {}
                     for v, req in variant_rows:
@@ -2563,7 +2767,9 @@ def resolve_urls_to_ccindex(
                     ]
 
                     try:
-                        env_rg_workers = (os.environ.get("BRAVE_RESOLVE_ROWGROUP_WORKERS") or "").strip()
+                        env_rg_workers = (
+                            os.environ.get("BRAVE_RESOLVE_ROWGROUP_WORKERS") or ""
+                        ).strip()
                         rg_workers = int(env_rg_workers) if env_rg_workers else 8
                     except Exception:
                         rg_workers = 8
@@ -2580,12 +2786,18 @@ def resolve_urls_to_ccindex(
                     collection_segments: Dict[str, List[Sequence[object]]] = {}
                     segment_source_by_year: Dict[str, str] = {}
 
-                    seg_pref_env = (os.environ.get("BRAVE_RESOLVE_ROWGROUP_SEGMENT_SOURCE") or "fastest").strip().lower()
+                    seg_pref_env = (
+                        (os.environ.get("BRAVE_RESOLVE_ROWGROUP_SEGMENT_SOURCE") or "fastest")
+                        .strip()
+                        .lower()
+                    )
                     if seg_pref_env not in {"fastest", "auto", "year", "collection"}:
                         seg_pref_env = "fastest"
 
                     for y, ycols in collections_by_year.items():
-                        coll_key = tuple(sorted({str(c.collection) for c in ycols if str(c.collection)}))
+                        coll_key = tuple(
+                            sorted({str(c.collection) for c in ycols if str(c.collection)})
+                        )
                         if not coll_key:
                             continue
 
@@ -2603,24 +2815,44 @@ def resolve_urls_to_ccindex(
                                 year_reason = "db_missing"
                             else:
                                 t0 = time.perf_counter()
-                                year_rows, year_reason = _rowgroup_segments_by_year_cached(y, coll_key, tuple(host_revs))
+                                year_rows, year_reason = _rowgroup_segments_by_year_cached(
+                                    y, coll_key, tuple(host_revs)
+                                )
                                 year_time = time.perf_counter() - t0
                             if year_reason:
-                                _emit({"event": "rowgroup_slice_skip", "collection": f"year:{y}", "reason": year_reason})
+                                _emit(
+                                    {
+                                        "event": "rowgroup_slice_skip",
+                                        "collection": f"year:{y}",
+                                        "reason": year_reason,
+                                    }
+                                )
 
                         coll_time = None
                         if pref in {"collection", "fastest"}:
                             t0 = time.perf_counter()
                             try:
-                                from concurrent.futures import ThreadPoolExecutor as _SegTPE, as_completed as _seg_ac
+                                from concurrent.futures import (
+                                    ThreadPoolExecutor as _SegTPE,
+                                    as_completed as _seg_ac,
+                                )
 
-                                def _fetch_coll_segments(cname: str) -> Tuple[str, Sequence[Sequence[object]], str]:
-                                    segs, reason = _rowgroup_segments_cached(cname, tuple(host_revs))
+                                def _fetch_coll_segments(
+                                    cname: str,
+                                ) -> Tuple[str, Sequence[Sequence[object]], str]:
+                                    segs, reason = _rowgroup_segments_cached(
+                                        cname, tuple(host_revs)
+                                    )
                                     return (cname, segs, reason)
 
                                 coll_workers = max(1, min(int(rg_workers), len(ycols)))
                                 with _SegTPE(max_workers=coll_workers) as sx:
-                                    futs = {sx.submit(_fetch_coll_segments, str(c.collection)): str(c.collection) for c in ycols}
+                                    futs = {
+                                        sx.submit(_fetch_coll_segments, str(c.collection)): str(
+                                            c.collection
+                                        )
+                                        for c in ycols
+                                    }
                                     for fut in _seg_ac(futs):
                                         cname = futs.get(fut, "")
                                         try:
@@ -2628,7 +2860,13 @@ def resolve_urls_to_ccindex(
                                         except Exception:
                                             continue
                                         if reason:
-                                            _emit({"event": "rowgroup_slice_skip", "collection": str(cname), "reason": reason})
+                                            _emit(
+                                                {
+                                                    "event": "rowgroup_slice_skip",
+                                                    "collection": str(cname),
+                                                    "reason": reason,
+                                                }
+                                            )
                                             continue
                                         if segs:
                                             collection_segments[str(cname)] = list(segs)
@@ -2640,7 +2878,11 @@ def resolve_urls_to_ccindex(
                             chosen = "year"
                             if year_reason or not year_rows:
                                 chosen = "collection"
-                            elif coll_time is not None and year_time is not None and coll_time < year_time:
+                            elif (
+                                coll_time is not None
+                                and year_time is not None
+                                and coll_time < year_time
+                            ):
                                 chosen = "collection"
                             _ROWGROUP_SEGMENT_PREF_CACHE[pref_key] = chosen
                             _emit(
@@ -2648,8 +2890,12 @@ def resolve_urls_to_ccindex(
                                     "event": "rowgroup_segment_source",
                                     "year": str(y),
                                     "chosen": str(chosen),
-                                    "year_time_s": None if year_time is None else float(f"{year_time:.4f}"),
-                                    "collection_time_s": None if coll_time is None else float(f"{coll_time:.4f}"),
+                                    "year_time_s": None
+                                    if year_time is None
+                                    else float(f"{year_time:.4f}"),
+                                    "collection_time_s": None
+                                    if coll_time is None
+                                    else float(f"{coll_time:.4f}"),
                                 }
                             )
 
@@ -2667,7 +2913,9 @@ def resolve_urls_to_ccindex(
                             if by_coll:
                                 year_segments[str(y)] = by_coll
 
-                    def _merge_rowgroup_matches(local_matches: Dict[str, List[Dict[str, object]]]) -> None:
+                    def _merge_rowgroup_matches(
+                        local_matches: Dict[str, List[Dict[str, object]]],
+                    ) -> None:
                         nonlocal rows_returned
                         for requested_url, recs in local_matches.items():
                             if requested_url not in matches:
@@ -2676,10 +2924,14 @@ def resolve_urls_to_ccindex(
                                 if per_url_counts.get(requested_url, 0) >= int(per_url_limit):
                                     break
                                 matches[requested_url].append(rec)
-                                per_url_counts[requested_url] = per_url_counts.get(requested_url, 0) + 1
+                                per_url_counts[requested_url] = (
+                                    per_url_counts.get(requested_url, 0) + 1
+                                )
                                 rows_returned += 1
 
-                    def _seg_override_for(cref: CollectionRef) -> Optional[Sequence[Sequence[object]]]:
+                    def _seg_override_for(
+                        cref: CollectionRef,
+                    ) -> Optional[Sequence[Sequence[object]]]:
                         y = str(getattr(cref, "year", "") or "")
                         coll_name = str(cref.collection)
                         if y:
@@ -2700,24 +2952,35 @@ def resolve_urls_to_ccindex(
                     if rg_workers <= 1 or len(collections) <= 1:
                         # Sequential scan (newest-first), stop as soon as all URLs are satisfied.
                         for cref in collections:
-                            if all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls):
+                            if all(
+                                per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls
+                            ):
                                 break
                             seg_override = _seg_override_for(cref)
-                            local_matches, local_stats = _resolve_with_rowgroup_slice_for_collection(
-                                coll=str(cref.collection),
-                                host_revs_for_domain=host_revs,
-                                variant_to_requested=variant_to_requested,
-                                want_cols=want_cols,
-                                seg_rows_override=seg_override,
+                            local_matches, local_stats = (
+                                _resolve_with_rowgroup_slice_for_collection(
+                                    coll=str(cref.collection),
+                                    host_revs_for_domain=host_revs,
+                                    variant_to_requested=variant_to_requested,
+                                    want_cols=want_cols,
+                                    seg_rows_override=seg_override,
+                                )
                             )
                             _merge_rowgroup_matches(local_matches)
-                            parquet_files_scanned += int(local_stats.get("parquet_files_scanned") or 0)
+                            parquet_files_scanned += int(
+                                local_stats.get("parquet_files_scanned") or 0
+                            )
                             collections_scanned += int(local_stats.get("collections_scanned") or 0)
                     else:
                         # Parallel scan across collections (merge results in newest-first order).
-                        from concurrent.futures import ThreadPoolExecutor as _RG_TPE, as_completed as _rg_as_completed
+                        from concurrent.futures import (
+                            ThreadPoolExecutor as _RG_TPE,
+                            as_completed as _rg_as_completed,
+                        )
 
-                        results_by_coll: Dict[str, tuple[Dict[str, List[Dict[str, object]]], Dict[str, int]]] = {}
+                        results_by_coll: Dict[
+                            str, tuple[Dict[str, List[Dict[str, object]]], Dict[str, int]]
+                        ] = {}
                         with _RG_TPE(max_workers=min(int(rg_workers), len(collections))) as rex:
                             futs = {
                                 rex.submit(
@@ -2738,17 +3001,25 @@ def resolve_urls_to_ccindex(
                                     results_by_coll[coll] = ({}, {})
 
                         for cref in collections:
-                            if all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls):
+                            if all(
+                                per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls
+                            ):
                                 break
-                            local_matches, local_stats = results_by_coll.get(str(cref.collection), ({}, {}))
+                            local_matches, local_stats = results_by_coll.get(
+                                str(cref.collection), ({}, {})
+                            )
                             _merge_rowgroup_matches(local_matches)
-                            parquet_files_scanned += int(local_stats.get("parquet_files_scanned") or 0)
+                            parquet_files_scanned += int(
+                                local_stats.get("parquet_files_scanned") or 0
+                            )
                             collections_scanned += int(local_stats.get("collections_scanned") or 0)
                 except Exception:
                     # Fall back silently to existing Parquet scan strategies.
                     pass
 
-            skip_legacy_env = (os.environ.get("BRAVE_RESOLVE_SKIP_LEGACY_SCHEMA") or "").strip().lower()
+            skip_legacy_env = (
+                (os.environ.get("BRAVE_RESOLVE_SKIP_LEGACY_SCHEMA") or "").strip().lower()
+            )
             skip_legacy = skip_legacy_env in {"1", "true", "yes", "on"}
 
             def _allow_collection(coll: str) -> bool:
@@ -2808,7 +3079,9 @@ def resolve_urls_to_ccindex(
                             p = Path(sp_s)
                         elif rel_s:
                             if parquet_dir is None:
-                                parquet_dir = get_collection_parquet_dir(parquet_root, cref.collection)
+                                parquet_dir = get_collection_parquet_dir(
+                                    parquet_root, cref.collection
+                                )
                             p = (parquet_dir / rel_s).resolve()
                         if p is None:
                             continue
@@ -2819,7 +3092,12 @@ def resolve_urls_to_ccindex(
                         if p.exists():
                             pq_paths.append(p)
 
-                    return (str(cref.collection), pq_paths, float(time.perf_counter() - t0), int(len(rows)))
+                    return (
+                        str(cref.collection),
+                        pq_paths,
+                        float(time.perf_counter() - t0),
+                        int(len(rows)),
+                    )
                 finally:
                     try:
                         con_i.close()
@@ -2835,7 +3113,10 @@ def resolve_urls_to_ccindex(
                     dp_batch = int(rel_workers) * 2
                 dp_batch = max(1, min(64, int(dp_batch)))
 
-                from concurrent.futures import ThreadPoolExecutor as _TPE2, as_completed as _as_completed2
+                from concurrent.futures import (
+                    ThreadPoolExecutor as _TPE2,
+                    as_completed as _as_completed2,
+                )
 
                 # Prefer global per-year domain indexes when available.
                 # These avoid opening many per-collection DBs just to discover shard Parquet files.
@@ -2853,7 +3134,10 @@ def resolve_urls_to_ccindex(
                                 break
 
                         if by_year_dir is not None:
-                            years = sorted({str(c.year) for c in collections if getattr(c, "year", None)}, reverse=True)
+                            years = sorted(
+                                {str(c.year) for c in collections if getattr(c, "year", None)},
+                                reverse=True,
+                            )
                             for y in years:
                                 dbp = (by_year_dir / f"cc_pointers_{y}.duckdb").resolve()
                                 if not dbp.exists():
@@ -2926,7 +3210,9 @@ def resolve_urls_to_ccindex(
                         global_coll_to_pq[_c] = uniq
 
                     # Process newest collections first to maximize the chance we can stop early.
-                    ordered_colls = sorted(global_coll_to_pq.keys(), key=_collection_sort_key, reverse=True)
+                    ordered_colls = sorted(
+                        global_coll_to_pq.keys(), key=_collection_sort_key, reverse=True
+                    )
 
                     batch_files: List[Path] = []
                     file_to_coll: Dict[str, str] = {}
@@ -2940,7 +3226,9 @@ def resolve_urls_to_ccindex(
 
                     if batch_files:
                         for i in range(0, len(batch_files), batch_sz):
-                            if all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls):
+                            if all(
+                                per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls
+                            ):
                                 break
 
                             batch = batch_files[i : i + batch_sz]
@@ -3023,7 +3311,9 @@ def resolve_urls_to_ccindex(
                                         pp = str(parquet_path or "")
                                         name = Path(pp).name
                                         suf = ".sorted.parquet"
-                                        shard_file = name[: -len(suf)] if name.endswith(suf) else name
+                                        shard_file = (
+                                            name[: -len(suf)] if name.endswith(suf) else name
+                                        )
                                         shard_file = shard_file or None
                                     except Exception:
                                         shard_file = None
@@ -3037,15 +3327,23 @@ def resolve_urls_to_ccindex(
                                     "mime": mime,
                                     "digest": digest,
                                     "warc_filename": warc_filename,
-                                    "warc_offset": int(warc_offset) if warc_offset is not None else None,
-                                    "warc_length": int(warc_length) if warc_length is not None else None,
+                                    "warc_offset": int(warc_offset)
+                                    if warc_offset is not None
+                                    else None,
+                                    "warc_length": int(warc_length)
+                                    if warc_length is not None
+                                    else None,
                                     "parquet_path": str(parquet_path or ""),
                                 }
                                 matches[requested_url].append(rec)
-                                per_url_counts[requested_url] = per_url_counts.get(requested_url, 0) + 1
+                                per_url_counts[requested_url] = (
+                                    per_url_counts.get(requested_url, 0) + 1
+                                )
 
                 # Only use per-collection domain pointers for years without a global-by-year index.
-                collections_remaining = [c for c in collections if str(getattr(c, "year", "")) not in covered_years]
+                collections_remaining = [
+                    c for c in collections if str(getattr(c, "year", "")) not in covered_years
+                ]
 
                 # Scan newest collections first, but interleave index lookup with scanning so we can stop early.
                 for start in range(0, len(collections_remaining), int(dp_batch)):
@@ -3057,8 +3355,12 @@ def resolve_urls_to_ccindex(
                     coll_to_pq: Dict[str, List[Path]] = {}
 
                     try:
-                        with _TPE2(max_workers=min(int(rel_workers), max(1, len(batch_cols)))) as dex:
-                            futs = [dex.submit(_lookup_domain_pointers, cref) for cref in batch_cols]
+                        with _TPE2(
+                            max_workers=min(int(rel_workers), max(1, len(batch_cols)))
+                        ) as dex:
+                            futs = [
+                                dex.submit(_lookup_domain_pointers, cref) for cref in batch_cols
+                            ]
                             for fut in _as_completed2(futs):
                                 try:
                                     coll, pq_paths, dt, rows_n = fut.result()
@@ -3080,7 +3382,9 @@ def resolve_urls_to_ccindex(
 
                     # Preserve newest-first ordering based on the batch_cols sequence.
                     ordered_colls = [
-                        str(c.collection) for c in batch_cols if str(getattr(c, "collection", "")) in coll_to_pq
+                        str(c.collection)
+                        for c in batch_cols
+                        if str(getattr(c, "collection", "")) in coll_to_pq
                     ]
                     batch_files: List[Path] = []
                     for _coll in ordered_colls:
@@ -3197,8 +3501,12 @@ def resolve_urls_to_ccindex(
                                 "mime": mime,
                                 "digest": digest,
                                 "warc_filename": warc_filename,
-                                "warc_offset": int(warc_offset) if warc_offset is not None else None,
-                                "warc_length": int(warc_length) if warc_length is not None else None,
+                                "warc_offset": int(warc_offset)
+                                if warc_offset is not None
+                                else None,
+                                "warc_length": int(warc_length)
+                                if warc_length is not None
+                                else None,
                                 "parquet_path": str(parquet_path or ""),
                             }
                             matches[requested_url].append(rec)
@@ -3218,7 +3526,9 @@ def resolve_urls_to_ccindex(
             # The per-collection cc_domain_shards lookup (parquet_relpaths_for_domain) is often the
             # dominant cost, so only do it if we still need more matches.
             candidates: List[tuple[CollectionRef, Path]] = []
-            if (not dp_enabled) and (not all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls)):
+            if (not dp_enabled) and (
+                not all(per_url_counts.get(u, 0) >= int(per_url_limit) for u in dom_urls)
+            ):
                 for cref in collections:
                     cdb = cref.collection_db_path
                     if not cdb.exists():
@@ -3230,7 +3540,9 @@ def resolve_urls_to_ccindex(
                         continue
                     candidates.append((cref, parquet_dir))
 
-            def _lookup_one(cref: CollectionRef, parquet_dir: Path) -> tuple[str, List[Path], float]:
+            def _lookup_one(
+                cref: CollectionRef, parquet_dir: Path
+            ) -> tuple[str, List[Path], float]:
                 t0 = time.perf_counter()
                 relpaths = parquet_relpaths_for_domain(
                     cref.collection_db_path,
@@ -3403,7 +3715,14 @@ def resolve_urls_to_ccindex(
                         per_url_counts[requested_url] = per_url_counts.get(requested_url, 0) + 1
         except Exception as e:
             dt = time.perf_counter() - t_dom0
-            _emit({"event": "resolve_domain_error", "domain": dom, "elapsed_s": float(dt), "error": str(e)})
+            _emit(
+                {
+                    "event": "resolve_domain_error",
+                    "domain": dom,
+                    "elapsed_s": float(dt),
+                    "error": str(e),
+                }
+            )
             with _dom_lock:
                 _dom_details[dom] = {
                     "domain": dom,
@@ -3430,7 +3749,14 @@ def resolve_urls_to_ccindex(
                     "rows_returned": int(rows_returned),
                     "error": str(e),
                 }
-            return (dom, {}, int(collections_scanned), int(parquet_files_scanned), float(dt), str(e))
+            return (
+                dom,
+                {},
+                int(collections_scanned),
+                int(parquet_files_scanned),
+                float(dt),
+                str(e),
+            )
         finally:
             try:
                 con.close()
@@ -3495,7 +3821,9 @@ def resolve_urls_to_ccindex(
         return (dom, matches, int(collections_scanned), int(parquet_files_scanned), float(dt), None)
 
     _resolve_one_domain = (
-        _resolve_one_domain_url_join if resolve_strategy == "domain_url_join_parallel" else _resolve_one_domain_meta
+        _resolve_one_domain_url_join
+        if resolve_strategy == "domain_url_join_parallel"
+        else _resolve_one_domain_meta
     )
 
     with ThreadPoolExecutor(max_workers=int(max_workers)) as ex:
@@ -3564,10 +3892,18 @@ def resolve_urls_to_ccindex(
             "schema_s_total": float(schema_s_total),
             "query_s_total": float(query_s_total),
             "cc_pointers_s_total": float(
-                sum(float(d.get("cc_pointers_s") or 0.0) for d in details_sorted if isinstance(d, dict))
+                sum(
+                    float(d.get("cc_pointers_s") or 0.0)
+                    for d in details_sorted
+                    if isinstance(d, dict)
+                )
             ),
             "cc_pointers_check_s_total": float(
-                sum(float(d.get("cc_pointers_check_s") or 0.0) for d in details_sorted if isinstance(d, dict))
+                sum(
+                    float(d.get("cc_pointers_check_s") or 0.0)
+                    for d in details_sorted
+                    if isinstance(d, dict)
+                )
             ),
             "filter_s_total": float(filter_s_total),
             "relpaths_s_total": float(relpaths_s_total),
@@ -3594,7 +3930,9 @@ def brave_search_ccindex(
     count: int = 8,
     offset: int = 0,
     parquet_root: Path = Path("/storage/ccindex_parquet"),
-    master_db: Optional[Path] = Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"),
+    master_db: Optional[Path] = Path(
+        "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"
+    ),
     year: Optional[str] = None,
     per_url_limit: int = 3,
     api_key: Optional[str] = None,
@@ -3604,14 +3942,18 @@ def brave_search_ccindex(
     t0 = time.perf_counter()
 
     # Second-layer cache: caches the *resolved* result set (Brave results + CCIndex pointers).
-    resolve_cache_disable = (os.environ.get("BRAVE_RESOLVE_CACHE_DISABLE") or "").strip().lower() in {
+    resolve_cache_disable = (
+        os.environ.get("BRAVE_RESOLVE_CACHE_DISABLE") or ""
+    ).strip().lower() in {
         "1",
         "true",
         "yes",
         "on",
     }
     resolve_ttl_s = int((os.environ.get("BRAVE_RESOLVE_CACHE_TTL_S") or "86400").strip() or "86400")
-    resolve_max_entries = int((os.environ.get("BRAVE_RESOLVE_CACHE_MAX_ENTRIES") or "2000").strip() or "2000")
+    resolve_max_entries = int(
+        (os.environ.get("BRAVE_RESOLVE_CACHE_MAX_ENTRIES") or "2000").strip() or "2000"
+    )
     cache_path = _brave_resolve_cache_path()
 
     if not resolve_cache_disable and resolve_ttl_s > 0:
@@ -3661,14 +4003,24 @@ def brave_search_ccindex(
     # Prefer the meta-returning variant so callers can render real pagination.
     from common_crawl_search_engine.ccsearch.brave_search import brave_web_search_page
 
-    trace = (os.environ.get("CCINDEX_BRAVE_TRACE") or "").strip().lower() in {"1", "true", "yes", "on"}
+    trace = (os.environ.get("CCINDEX_BRAVE_TRACE") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
     trace = trace or bool((os.environ.get("CCINDEX_EVENT_LOG_PATH") or "").strip())
 
     if trace:
         # Uses the same event log as the resolve stage.
         try:
             state_dir = Path((os.environ.get("CCINDEX_STATE_DIR") or "state").strip() or "state")
-            p = Path((os.environ.get("CCINDEX_EVENT_LOG_PATH") or str(state_dir / "ccindex_events.jsonl")).strip())
+            p = Path(
+                (
+                    os.environ.get("CCINDEX_EVENT_LOG_PATH")
+                    or str(state_dir / "ccindex_events.jsonl")
+                ).strip()
+            )
             p.parent.mkdir(parents=True, exist_ok=True)
             p.open("a", encoding="utf-8").write(
                 json.dumps(
@@ -3699,11 +4051,15 @@ def brave_search_ccindex(
     effective_offset = int(offset)
     if isinstance(meta, dict):
         try:
-            effective_count = int(meta.get("count")) if meta.get("count") is not None else int(count)
+            effective_count = (
+                int(meta.get("count")) if meta.get("count") is not None else int(count)
+            )
         except Exception:
             effective_count = int(count)
         try:
-            effective_offset = int(meta.get("offset")) if meta.get("offset") is not None else int(offset)
+            effective_offset = (
+                int(meta.get("offset")) if meta.get("offset") is not None else int(offset)
+            )
         except Exception:
             effective_offset = int(offset)
         v = meta.get("total")
@@ -3775,7 +4131,12 @@ def brave_search_ccindex(
     if trace:
         try:
             state_dir = Path((os.environ.get("CCINDEX_STATE_DIR") or "state").strip() or "state")
-            p = Path((os.environ.get("CCINDEX_EVENT_LOG_PATH") or str(state_dir / "ccindex_events.jsonl")).strip())
+            p = Path(
+                (
+                    os.environ.get("CCINDEX_EVENT_LOG_PATH")
+                    or str(state_dir / "ccindex_events.jsonl")
+                ).strip()
+            )
             p.parent.mkdir(parents=True, exist_ok=True)
             p.open("a", encoding="utf-8").write(
                 json.dumps(
@@ -3835,7 +4196,9 @@ def brave_search_ccindex(
     return res_obj
 
 
-def warc_download_url(warc_filename_or_url: str, *, prefix: str = "https://data.commoncrawl.org/") -> str:
+def warc_download_url(
+    warc_filename_or_url: str, *, prefix: str = "https://data.commoncrawl.org/"
+) -> str:
     warc = (warc_filename_or_url or "").strip()
     if warc.startswith("http://") or warc.startswith("https://"):
         return warc
@@ -3935,7 +4298,9 @@ def ensure_full_warc_cached(
     # If size is known, guard before downloading.
     clen = _http_head_content_length(url, timeout_s=float(timeout_s))
     if clen is not None and int(max_full_bytes) > 0 and clen > int(max_full_bytes):
-        raise RuntimeError(f"full WARC too large: {clen} bytes > max_full_bytes={int(max_full_bytes)}")
+        raise RuntimeError(
+            f"full WARC too large: {clen} bytes > max_full_bytes={int(max_full_bytes)}"
+        )
 
     req = urllib.request.Request(url, method="GET")
     tmp = out_path.with_suffix(out_path.suffix + ".part")
@@ -4076,7 +4441,9 @@ def fetch_warc_record(
                 if decode_gzip_text and data:
                     try:
                         decompressed = gzip.decompress(data)
-                        preview = decompressed[: max(0, int(max_preview_chars))].decode("utf-8", errors="replace")
+                        preview = decompressed[: max(0, int(max_preview_chars))].decode(
+                            "utf-8", errors="replace"
+                        )
                     except Exception:
                         preview = None
 
@@ -4200,7 +4567,9 @@ def _http_range_get_cached(
             cache_dir = Path(cache_dir)
             cache_dir.mkdir(parents=True, exist_ok=True)
             if bytes_requested > 0 and bytes_requested <= int(cache_max_item_bytes):
-                cache_path = _cache_path_for_range(cache_dir, url=url, start=int(start), end_inclusive=int(end_inclusive))
+                cache_path = _cache_path_for_range(
+                    cache_dir, url=url, start=int(start), end_inclusive=int(end_inclusive)
+                )
                 if cache_path.exists() and cache_path.is_file():
                     try:
                         if cache_path.stat().st_size == bytes_requested:
@@ -4416,7 +4785,9 @@ def extract_http_from_warc_gzip_member(
             http_status=None,
             http_status_line=None,
             http_headers={},
-            body_base64=base64.b64encode(raw).decode("ascii") if (include_body_base64 and raw) else None,
+            body_base64=base64.b64encode(raw).decode("ascii")
+            if (include_body_base64 and raw)
+            else None,
             body_text_preview=prev or None,
             body_is_html=False,
             body_mime=None,
@@ -4584,7 +4955,9 @@ def fetch_warc_record_range(
     if decode_gzip_text and data:
         try:
             decompressed = gzip.decompress(data)
-            preview = decompressed[: max(0, int(max_preview_chars))].decode("utf-8", errors="replace")
+            preview = decompressed[: max(0, int(max_preview_chars))].decode(
+                "utf-8", errors="replace"
+            )
         except Exception:
             preview = None
 
@@ -4638,7 +5011,9 @@ def _merge_ranges_into_slices(
         new_end = max(cur_end, end)
         new_len = int(new_end) - int(new_start) + 1
 
-        if gap <= int(max_gap_bytes) and (int(max_slice_bytes) <= 0 or new_len <= int(max_slice_bytes)):
+        if gap <= int(max_gap_bytes) and (
+            int(max_slice_bytes) <= 0 or new_len <= int(max_slice_bytes)
+        ):
             cur_end = new_end
             members.append((start, ln))
             continue
@@ -4726,7 +5101,9 @@ def fetch_warc_record_ranges_sliced(
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    def _fetch_one_slice(slice_start: int, slice_end: int) -> Tuple[int, int, Optional[int], Optional[bytes], Optional[str]]:
+    def _fetch_one_slice(
+        slice_start: int, slice_end: int
+    ) -> Tuple[int, int, Optional[int], Optional[bytes], Optional[str]]:
         bytes_requested = int(slice_end) - int(slice_start) + 1
         slice_cache_dir = cache_dir
         slice_cache_max_item_bytes = int(cache_max_item_bytes)
@@ -4740,7 +5117,9 @@ def fetch_warc_record_ranges_sliced(
             timeout_s=float(timeout_s),
             cache_dir=slice_cache_dir,
             cache_max_bytes=int(cache_max_bytes),
-            cache_max_item_bytes=int(slice_cache_max_item_bytes) if slice_cache_dir is not None else 0,
+            cache_max_item_bytes=int(slice_cache_max_item_bytes)
+            if slice_cache_dir is not None
+            else 0,
         )
         return int(slice_start), int(slice_end), status, blob, err
 
@@ -4748,7 +5127,9 @@ def fetch_warc_record_ranges_sliced(
     if workers <= 1 or len(slices) <= 1:
         slice_results = []
         for slice_start, slice_end, _members in slices:
-            slice_results.append((slice_start, slice_end, _members, *_fetch_one_slice(slice_start, slice_end)[2:]))
+            slice_results.append(
+                (slice_start, slice_end, _members, *_fetch_one_slice(slice_start, slice_end)[2:])
+            )
     else:
         slice_results = []
         # Submit only slice start/end; map back to members via a dict.

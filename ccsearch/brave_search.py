@@ -16,7 +16,9 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 try:
-    from ipfs_datasets_py.processors.web_archiving.brave_search_client import resolve_brave_search_api_key
+    from ipfs_datasets_py.processors.web_archiving.brave_search_client import (
+        resolve_brave_search_api_key,
+    )
 except Exception:  # pragma: no cover - submodule can be used standalone
     resolve_brave_search_api_key = None  # type: ignore[assignment]
 
@@ -129,7 +131,12 @@ def clear_brave_search_cache() -> Dict[str, object]:
                 # Fallback: truncate.
                 try:
                     path.write_text("{}\n", encoding="utf-8")
-                    return {"deleted": False, "freed_bytes": freed, "path": str(path), "truncated": True}
+                    return {
+                        "deleted": False,
+                        "freed_bytes": freed,
+                        "path": str(path),
+                        "truncated": True,
+                    }
                 except Exception:
                     return {"deleted": False, "freed_bytes": 0, "path": str(path)}
         return {"deleted": False, "freed_bytes": 0, "path": str(path)}
@@ -212,10 +219,17 @@ def brave_web_search(
     token = (
         resolve_brave_search_api_key(api_key)
         if resolve_brave_search_api_key is not None
-        else (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
+        else (
+            api_key
+            or os.environ.get("BRAVE_SEARCH_API_KEY")
+            or os.environ.get("BRAVE_API_KEY")
+            or ""
+        ).strip()
     )
     if not token:
-        raise RuntimeError("Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)")
+        raise RuntimeError(
+            "Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)"
+        )
 
     q = (query or "").strip()
     if not q:
@@ -231,8 +245,12 @@ def brave_web_search(
         "on",
     }
     ttl_s = int((os.environ.get("BRAVE_SEARCH_CACHE_TTL_S") or "86400").strip() or "86400")
-    max_entries = int((os.environ.get("BRAVE_SEARCH_CACHE_MAX_ENTRIES") or "1000").strip() or "1000")
-    cache_key = _brave_cache_key(q=q, count=int(count), offset=int(offset), country=str(country), safesearch=str(safesearch))
+    max_entries = int(
+        (os.environ.get("BRAVE_SEARCH_CACHE_MAX_ENTRIES") or "1000").strip() or "1000"
+    )
+    cache_key = _brave_cache_key(
+        q=q, count=int(count), offset=int(offset), country=str(country), safesearch=str(safesearch)
+    )
 
     if not cache_disable and ttl_s > 0:
         try:
@@ -350,16 +368,29 @@ def brave_web_search_page(
     token = (
         resolve_brave_search_api_key(api_key)
         if resolve_brave_search_api_key is not None
-        else (api_key or os.environ.get("BRAVE_SEARCH_API_KEY") or os.environ.get("BRAVE_API_KEY") or "").strip()
+        else (
+            api_key
+            or os.environ.get("BRAVE_SEARCH_API_KEY")
+            or os.environ.get("BRAVE_API_KEY")
+            or ""
+        ).strip()
     )
     if not token:
-        raise RuntimeError("Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)")
+        raise RuntimeError(
+            "Missing BRAVE_SEARCH_API_KEY/BRAVE_API_KEY (set env var or pass api_key)"
+        )
 
     q = (query or "").strip()
     if not q:
         return {
             "items": [],
-            "meta": {"count": 0, "offset": 0, "total": 0, "max_count": brave_web_search_max_count(), "cached": True},
+            "meta": {
+                "count": 0,
+                "offset": 0,
+                "total": 0,
+                "max_count": brave_web_search_max_count(),
+                "cached": True,
+            },
         }
 
     count = _clamp_brave_count(int(count))
@@ -372,8 +403,12 @@ def brave_web_search_page(
         "on",
     }
     ttl_s = int((os.environ.get("BRAVE_SEARCH_CACHE_TTL_S") or "86400").strip() or "86400")
-    max_entries = int((os.environ.get("BRAVE_SEARCH_CACHE_MAX_ENTRIES") or "1000").strip() or "1000")
-    cache_key = _brave_cache_key(q=q, count=int(count), offset=int(offset), country=str(country), safesearch=str(safesearch))
+    max_entries = int(
+        (os.environ.get("BRAVE_SEARCH_CACHE_MAX_ENTRIES") or "1000").strip() or "1000"
+    )
+    cache_key = _brave_cache_key(
+        q=q, count=int(count), offset=int(offset), country=str(country), safesearch=str(safesearch)
+    )
 
     if not cache_disable and ttl_s > 0:
         try:
@@ -473,9 +508,14 @@ def brave_web_search_page(
             cache_path = _brave_cache_path()
             with _locked_cache_file(cache_path) as f:
                 cache = _load_cache_dict(f)
-                cache[cache_key] = {"ts": time.time(), "items": out_items, "meta": {"total": total_int}}
+                cache[cache_key] = {
+                    "ts": time.time(),
+                    "items": out_items,
+                    "meta": {"total": total_int},
+                }
 
                 if max_entries > 0 and len(cache) > max_entries:
+
                     def _ts(kv) -> float:
                         v = kv[1]
                         if isinstance(v, dict) and isinstance(v.get("ts"), (int, float)):

@@ -23,9 +23,7 @@ def _collection_dirs(parquet_root: Path) -> List[Path]:
     if not parquet_root.exists():
         return out
     # Expected layout: <root>/cc_pointers_by_collection/<year>/<collection>
-    for year_dir in sorted(
-        (parquet_root / "cc_pointers_by_collection").glob("[0-9][0-9][0-9][0-9]")
-    ):
+    for year_dir in sorted((parquet_root / "cc_pointers_by_collection").glob("[0-9][0-9][0-9][0-9]")):
         if not year_dir.is_dir():
             continue
         for coll_dir in sorted(year_dir.iterdir()):
@@ -159,9 +157,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--rebuild", action="store_true", help="Run rebuild for detected collections")
     ap.add_argument("--collections", default="", help="Comma-separated list to rebuild")
-    ap.add_argument(
-        "--download-missing", action="store_true", help="Download shards listed in index_files.txt"
-    )
+    ap.add_argument("--download-missing", action="store_true", help="Download shards listed in index_files.txt")
     ap.add_argument(
         "--download-base",
         default="https://data.commoncrawl.org/",

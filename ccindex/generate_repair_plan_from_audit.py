@@ -94,9 +94,7 @@ def _write_list(path: Path, items: List[str]) -> None:
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Generate a repair plan from parquet audit JSONL")
-    ap.add_argument(
-        "--audit-jsonl", required=True, type=Path, help="audit_parquet_shards.py output JSONL"
-    )
+    ap.add_argument("--audit-jsonl", required=True, type=Path, help="audit_parquet_shards.py output JSONL")
     ap.add_argument(
         "--parquet-root",
         required=True,
@@ -269,13 +267,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Stage 2: rowgroup normalization via orchestrator rewrite-if-needed.
     # Only include collections with rowgroup mismatch AND no missing provenance (fix those first).
     stage2_cols = [
-        p.collection for p in collections if p.rowgroup_mismatch and not p.missing_provenance
+        p.collection
+        for p in collections
+        if p.rowgroup_mismatch and not p.missing_provenance
     ]
 
     # Stage 2b: rowgroup normalization for collections that also had missing provenance
     # (should be run after Stage 1 completes).
     stage2b_cols = [
-        p.collection for p in collections if p.rowgroup_mismatch and p.missing_provenance
+        p.collection
+        for p in collections
+        if p.rowgroup_mismatch and p.missing_provenance
     ]
 
     # Stage 3: sort any non-sorted-named shard files.
@@ -304,9 +306,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     stage2_lines: List[str] = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
     stage2_lines.append("# Stage 2: Normalize row groups (rewrite-if-needed) and rebuild indexes")
-    stage2_lines.append(
-        "# Uses orchestrator resume; should not download sources when parquet exists."
-    )
+    stage2_lines.append("# Uses orchestrator resume; should not download sources when parquet exists.")
     stage2_lines.append("")
 
     def _orch_cmd(col: str) -> str:
@@ -338,9 +338,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     stage3_lines: List[str] = ["#!/usr/bin/env bash", "set -euo pipefail", ""]
     stage3_lines.append("# Stage 3: Sort any remaining unsorted shards")
-    stage3_lines.append(
-        "# (Usually there should be none; if present, re-run orchestrator without rewrite.)"
-    )
+    stage3_lines.append("# (Usually there should be none; if present, re-run orchestrator without rewrite.)")
     stage3_lines.append("")
     for col in stage3_cols:
         stage3_lines.append(
@@ -389,9 +387,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         },
     }
 
-    (out_dir / "plan_summary.json").write_text(
-        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    (out_dir / "plan_summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     # Convenience TSV for quick review.
     tsv_lines = [
@@ -427,8 +423,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"  - {stage1}")
     print(f"  - {stage2}")
     print(f"  - {stage3}")
-    print(f"  - {out_dir / 'plan_summary.json'}")
-    print(f"  - {out_dir / 'collections.tsv'}")
+    print(f"  - {out_dir/'plan_summary.json'}")
+    print(f"  - {out_dir/'collections.tsv'}")
     return 0
 
 

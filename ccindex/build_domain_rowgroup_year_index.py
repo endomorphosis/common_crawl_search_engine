@@ -43,9 +43,7 @@ def _ensure_schema(con: duckdb.DuckDBPyConnection) -> None:
     )
     con.execute("CREATE INDEX IF NOT EXISTS idx_ccdr_host_rev ON cc_domain_rowgroups(host_rev)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_ccdr_collection ON cc_domain_rowgroups(collection)")
-    con.execute(
-        "CREATE INDEX IF NOT EXISTS idx_ccdr_coll_host ON cc_domain_rowgroups(collection, host_rev)"
-    )
+    con.execute("CREATE INDEX IF NOT EXISTS idx_ccdr_coll_host ON cc_domain_rowgroups(collection, host_rev)")
 
 
 def _copy_collection(con: duckdb.DuckDBPyConnection, db_path: Path, collection: str) -> int:
@@ -188,13 +186,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     if args.output_db:
         output_db = Path(args.output_db).expanduser().resolve()
     else:
-        output_db = (
-            Path(
-                f"/storage/ccindex_duckdb/cc_domain_rowgroups_by_year/cc_domain_rowgroups_{year}.duckdb"
-            )
-            .expanduser()
-            .resolve()
-        )
+        output_db = Path(
+            f"/storage/ccindex_duckdb/cc_domain_rowgroups_by_year/cc_domain_rowgroups_{year}.duckdb"
+        ).expanduser().resolve()
 
     mem_limit = str(args.memory_limit).strip() or None
     build_year_index(

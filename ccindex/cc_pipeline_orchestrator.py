@@ -55,8 +55,8 @@ except ImportError:  # pragma: no cover
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
 
@@ -119,11 +119,7 @@ def _effective_available_memory_bytes() -> int:
     base = int(psutil.virtual_memory().available)
     raw = os.environ.get("CC_ARC_FRACTION")
     try:
-        arc_frac = (
-            float((raw or "").strip())
-            if raw is not None and str(raw).strip() != ""
-            else _default_arc_fraction()
-        )
+        arc_frac = float((raw or "").strip()) if raw is not None and str(raw).strip() != "" else _default_arc_fraction()
     except Exception:
         arc_frac = _default_arc_fraction()
     if arc_frac <= 0:
@@ -139,11 +135,7 @@ def _effective_available_memory_components_bytes() -> Tuple[int, int, float, int
     base = int(psutil.virtual_memory().available)
     raw = os.environ.get("CC_ARC_FRACTION")
     try:
-        arc_frac = (
-            float((raw or "").strip())
-            if raw is not None and str(raw).strip() != ""
-            else _default_arc_fraction()
-        )
+        arc_frac = float((raw or "").strip()) if raw is not None and str(raw).strip() != "" else _default_arc_fraction()
     except Exception:
         arc_frac = _default_arc_fraction()
     arc_frac = max(0.0, min(1.0, arc_frac))
@@ -162,7 +154,6 @@ DEFAULT_MAX_WORKERS = 8
 @dataclass
 class PipelineConfig:
     """Pipeline configuration"""
-
     ccindex_root: Path
     parquet_root: Path
     duckdb_collection_root: Path
@@ -209,7 +200,7 @@ class PipelineConfig:
     # under a separate root (e.g. /storage/ccindex_duckdb/cc_domain_by_year_sorted).
     update_domain_year_index: bool = False
     domain_year_index_root: Optional[Path] = None
-
+    
     def __post_init__(self):
         self.ccindex_root = Path(self.ccindex_root)
         self.parquet_root = Path(self.parquet_root)
@@ -222,38 +213,34 @@ class PipelineConfig:
 
         if self.domain_rowgroup_index_root is not None:
             self.domain_rowgroup_index_root = Path(self.domain_rowgroup_index_root)
-
+    
     @classmethod
-    def from_json(cls, path: Path) -> "PipelineConfig":
+    def from_json(cls, path: Path) -> 'PipelineConfig':
         """Load configuration from JSON file"""
         with open(path) as f:
             data = json.load(f)
         return cls(**data)
-
+    
     @classmethod
-    def from_args(cls, args) -> "PipelineConfig":
+    def from_args(cls, args) -> 'PipelineConfig':
         """Create config from command-line args, with JSON config as fallback"""
-        config_file = (
-            Path(args.config)
-            if hasattr(args, "config") and args.config
-            else Path("pipeline_config.json")
-        )
-
+        config_file = Path(args.config) if hasattr(args, 'config') and args.config else Path('pipeline_config.json')
+        
         # Load defaults from config file if it exists
         if config_file.exists():
             logger.info(f"Loading configuration from {config_file}")
             config = cls.from_json(config_file)
             # Override with command-line args if provided
-            if hasattr(args, "ccindex_root") and args.ccindex_root:
+            if hasattr(args, 'ccindex_root') and args.ccindex_root:
                 logger.info(f"Overriding ccindex_root: {args.ccindex_root}")
                 config.ccindex_root = Path(args.ccindex_root)
-            if hasattr(args, "parquet_root") and args.parquet_root:
+            if hasattr(args, 'parquet_root') and args.parquet_root:
                 logger.info(f"Overriding parquet_root: {args.parquet_root}")
                 config.parquet_root = Path(args.parquet_root)
-            if hasattr(args, "workers") and args.workers is not None:
+            if hasattr(args, 'workers') and args.workers is not None:
                 logger.info(f"Overriding workers: {args.workers}")
                 config.max_workers = int(args.workers)
-            if hasattr(args, "filter") and args.filter is not None:
+            if hasattr(args, 'filter') and args.filter is not None:
                 config.collections_filter = args.filter
 
             # Ensure a sane default even if the config file omits max_workers.
@@ -264,25 +251,15 @@ class PipelineConfig:
             logger.info(f"Config file {config_file} not found, using defaults")
             # Use command-line args or hardcoded defaults
             return cls(
-                ccindex_root=Path(args.ccindex_root)
-                if hasattr(args, "ccindex_root") and args.ccindex_root
-                else Path("/storage/ccindex"),
-                parquet_root=Path(args.parquet_root)
-                if hasattr(args, "parquet_root") and args.parquet_root
-                else Path("/storage/ccindex_parquet"),
-                duckdb_collection_root=Path("/storage/ccindex_duckdb/cc_pointers_by_collection"),
-                duckdb_year_root=Path("/storage/ccindex_duckdb/cc_pointers_by_year"),
-                duckdb_master_root=Path("/storage/ccindex_duckdb/cc_pointers_master"),
-                max_workers=(
-                    int(args.workers)
-                    if hasattr(args, "workers") and args.workers is not None
-                    else DEFAULT_MAX_WORKERS
-                ),
+                ccindex_root=Path(args.ccindex_root) if hasattr(args, 'ccindex_root') and args.ccindex_root else Path('/storage/ccindex'),
+                parquet_root=Path(args.parquet_root) if hasattr(args, 'parquet_root') and args.parquet_root else Path('/storage/ccindex_parquet'),
+                duckdb_collection_root=Path('/storage/ccindex_duckdb/cc_pointers_by_collection'),
+                duckdb_year_root=Path('/storage/ccindex_duckdb/cc_pointers_by_year'),
+                duckdb_master_root=Path('/storage/ccindex_duckdb/cc_pointers_master'),
+                max_workers=(int(args.workers) if hasattr(args, 'workers') and args.workers is not None else DEFAULT_MAX_WORKERS),
                 memory_limit_gb=10.0,
                 min_free_space_gb=50.0,
-                collections_filter=args.filter
-                if hasattr(args, "filter") and args.filter is not None
-                else None,
+                collections_filter=args.filter if hasattr(args, 'filter') and args.filter is not None else None
             )
 
 
@@ -306,13 +283,13 @@ def _normalize_collections_filter(value: Optional[str]) -> Optional[str]:
 
 class PipelineOrchestrator:
     """Orchestrates the complete CC pipeline"""
-
+    
     def __init__(self, config: PipelineConfig):
         self.config = config
         self.validator = CollectionValidator(
             ccindex_dir=config.ccindex_root,
             parquet_dir=config.parquet_root,
-            pointer_dir=config.duckdb_collection_root,  # Use collection-level indexes
+            pointer_dir=config.duckdb_collection_root  # Use collection-level indexes
         )
         self.collections: List[str] = []
         self.collection_status: Dict[str, dict] = {}
@@ -389,7 +366,7 @@ class PipelineOrchestrator:
                     # Drain remaining output
                     for line in proc.stdout:
                         s = line.rstrip()
-                        logger.info(f"{label}{s}")
+                        logger.info(f"{label}{s}" )
                         if tail is not None:
                             tail.append(s)
                     break
@@ -400,13 +377,13 @@ class PipelineOrchestrator:
                         line = key.fileobj.readline()
                         if line:
                             s = line.rstrip()
-                            logger.info(f"{label}{s}")
+                            logger.info(f"{label}{s}" )
                             if tail is not None:
                                 tail.append(s)
                 else:
                     now = time.monotonic()
                     elapsed = now - start
-                    logger.info(f"{label}Heartbeat: still running (elapsed {elapsed / 60:.1f} min)")
+                    logger.info(f"{label}Heartbeat: still running (elapsed {elapsed/60:.1f} min)")
         finally:
             try:
                 sel.unregister(proc.stdout)
@@ -526,16 +503,14 @@ class PipelineOrchestrator:
 
         if dry_run:
             logger.info(
-                f"[cleanup] dry-run complete for {collection}: would remove {skipped} item(s), approx {bytes_total / 1024**3:.2f} GB"
+                f"[cleanup] dry-run complete for {collection}: would remove {skipped} item(s), approx {bytes_total/1024**3:.2f} GB"
             )
         else:
             logger.info(
-                f"[cleanup] removed {removed} item(s) for {collection}, freed approx {bytes_total / 1024**3:.2f} GB"
+                f"[cleanup] removed {removed} item(s) for {collection}, freed approx {bytes_total/1024**3:.2f} GB"
             )
 
-    def _split_cleanup_plan(
-        self, collection: str, plan: List[Tuple[Path, str]]
-    ) -> Dict[str, List[Tuple[Path, str]]]:
+    def _split_cleanup_plan(self, collection: str, plan: List[Tuple[Path, str]]) -> Dict[str, List[Tuple[Path, str]]]:
         """Split a cleanup plan into human-friendly categories for preview logs."""
 
         categories: Dict[str, List[Tuple[Path, str]]] = defaultdict(list)
@@ -585,12 +560,8 @@ class PipelineOrchestrator:
         If not in dry-run mode, prompts for confirmation unless assume_yes=True.
         """
 
-        if (not getattr(self.config, "cleanup_extraneous", False)) and (
-            not getattr(self.config, "cleanup_source_archives", False)
-        ):
-            logger.info(
-                "[cleanup] cleanup-only requested with all cleanup disabled; enabling safe extraneous cleanup"
-            )
+        if (not getattr(self.config, "cleanup_extraneous", False)) and (not getattr(self.config, "cleanup_source_archives", False)):
+            logger.info("[cleanup] cleanup-only requested with all cleanup disabled; enabling safe extraneous cleanup")
             self.config.cleanup_extraneous = True
 
         self.collections = self.get_all_collections()
@@ -628,13 +599,13 @@ class PipelineOrchestrator:
                     pass
 
         logger.info(
-            f"[cleanup] Plan: {len(all_plans)} collection(s) have cleanup items; total {total_items} item(s), approx {total_bytes / 1024**3:.2f} GB"
+            f"[cleanup] Plan: {len(all_plans)} collection(s) have cleanup items; total {total_items} item(s), approx {total_bytes/1024**3:.2f} GB"
         )
         if total_by_cat_items:
             for cat in ["parquet artifacts", "source archives"]:
                 if total_by_cat_items.get(cat):
                     logger.info(
-                        f"[cleanup]   - {cat}: {total_by_cat_items[cat]} item(s), approx {total_by_cat_bytes[cat] / 1024**3:.2f} GB"
+                        f"[cleanup]   - {cat}: {total_by_cat_items[cat]} item(s), approx {total_by_cat_bytes[cat]/1024**3:.2f} GB"
                     )
 
         # Always show the plan when cleanup-only is requested.
@@ -660,9 +631,7 @@ class PipelineOrchestrator:
 
         if not assume_yes:
             if not sys.stdin.isatty():
-                logger.error(
-                    "[cleanup] Refusing to delete without confirmation in non-interactive mode. Re-run with --yes or --cleanup-dry-run"
-                )
+                logger.error("[cleanup] Refusing to delete without confirmation in non-interactive mode. Re-run with --yes or --cleanup-dry-run")
                 return
             answer = input("Proceed with deletion? Type 'yes' to continue: ").strip().lower()
             if answer != "yes":
@@ -676,7 +645,7 @@ class PipelineOrchestrator:
             self._execute_cleanup_plan(collection, plan)
 
     def _collection_year(self, collection: str) -> Optional[str]:
-        parts = collection.split("-")
+        parts = collection.split('-')
         if len(parts) >= 3 and parts[2].isdigit():
             return parts[2]
         return None
@@ -743,33 +712,18 @@ class PipelineOrchestrator:
                 try:
                     import duckdb
 
-                    sample_runs = int(
-                        (os.environ.get("CC_SORT_ROW_GROUP_RUN_SAMPLES") or "20000").strip()
-                        or 20000
-                    )
+                    sample_runs = int((os.environ.get("CC_SORT_ROW_GROUP_RUN_SAMPLES") or "20000").strip() or 20000)
                 except Exception:
                     sample_runs = 20000
                 sample_runs = max(2000, min(200000, int(sample_runs)))
 
-                strategy = (
-                    (os.environ.get("CC_SORT_ROW_GROUP_STRATEGY") or "domain_pct").strip().lower()
-                )
+                strategy = (os.environ.get("CC_SORT_ROW_GROUP_STRATEGY") or "domain_pct").strip().lower()
                 if strategy not in {"domain_pct", "walltime"}:
                     strategy = "domain_pct"
 
                 # Candidate sizes (rows). Keep the set small + interpretable.
                 # Include smaller sizes since we slice rowgroups rather than scanning full files.
-                candidates = [
-                    10_000,
-                    20_000,
-                    30_000,
-                    50_000,
-                    75_000,
-                    100_000,
-                    150_000,
-                    200_000,
-                    300_000,
-                ]
+                candidates = [10_000, 20_000, 30_000, 50_000, 75_000, 100_000, 150_000, 200_000, 300_000]
 
                 # Extract a sample of contiguous run lengths (domain row counts) from the sorted file.
                 # We operate in SQL to avoid materializing full host_rev columns in Python.
@@ -812,11 +766,7 @@ class PipelineOrchestrator:
                     USING SAMPLE reservoir({sample_runs})
                     REPEATABLE (42)
                     """
-                    run_lens = [
-                        int(r[0])
-                        for r in con.execute(run_query, [str(sample)]).fetchall()
-                        if r and r[0] is not None
-                    ]
+                    run_lens = [int(r[0]) for r in con.execute(run_query, [str(sample)]).fetchall() if r and r[0] is not None]
                 finally:
                     try:
                         con.close()
@@ -826,15 +776,10 @@ class PipelineOrchestrator:
                 if run_lens:
                     import math
 
-                    run_lens_sorted = sorted(
-                        int(x) for x in run_lens if x is not None and int(x) > 0
-                    )
+                    run_lens_sorted = sorted(int(x) for x in run_lens if x is not None and int(x) > 0)
                     if strategy == "domain_pct" and run_lens_sorted:
                         try:
-                            pct = float(
-                                (os.environ.get("CC_SORT_ROW_GROUP_DOMAIN_PCT") or "90").strip()
-                                or 90.0
-                            )
+                            pct = float((os.environ.get("CC_SORT_ROW_GROUP_DOMAIN_PCT") or "90").strip() or 90.0)
                         except Exception:
                             pct = 90.0
                         pct = max(50.0, min(99.9, float(pct)))
@@ -851,15 +796,11 @@ class PipelineOrchestrator:
 
                         # Avoid ultra-tiny rowgroups (bytes-wise) even if domains are small.
                         try:
-                            min_mb = float(
-                                (os.environ.get("CC_SORT_ROW_GROUP_MIN_MB") or "8").strip() or 8.0
-                            )
+                            min_mb = float((os.environ.get("CC_SORT_ROW_GROUP_MIN_MB") or "8").strip() or 8.0)
                         except Exception:
                             min_mb = 8.0
                         min_mb = max(1.0, min(64.0, float(min_mb)))
-                        min_rows_by_bytes = int(
-                            (min_mb * 1024.0 * 1024.0) / max(1.0, float(bytes_per_row))
-                        )
+                        min_rows_by_bytes = int((min_mb * 1024.0 * 1024.0) / max(1.0, float(bytes_per_row)))
                         if target < min_rows_by_bytes:
                             target = int(math.ceil(float(min_rows_by_bytes) / 5000.0) * 5000)
                             target = max(10_000, min(200_000, int(target)))
@@ -883,9 +824,7 @@ class PipelineOrchestrator:
 
                     # Walltime-ish cost model fallback (opt-in via CC_SORT_ROW_GROUP_STRATEGY=walltime).
                     try:
-                        overhead_mb = float(
-                            (os.environ.get("CC_SORT_ROW_GROUP_OVERHEAD_MB") or "2").strip() or 2.0
-                        )
+                        overhead_mb = float((os.environ.get("CC_SORT_ROW_GROUP_OVERHEAD_MB") or "2").strip() or 2.0)
                     except Exception:
                         overhead_mb = 2.0
                     overhead_mb = max(0.0, min(64.0, float(overhead_mb)))
@@ -895,9 +834,7 @@ class PipelineOrchestrator:
                         tot = 0.0
                         for L in run_lens:
                             groups = int(math.ceil(float(L) / float(k)))
-                            tot += float(groups) * (
-                                float(k) * float(bytes_per_row) + overhead_bytes
-                            )
+                            tot += float(groups) * (float(k) * float(bytes_per_row) + overhead_bytes)
                         return tot / float(len(run_lens))
 
                     best_k = None
@@ -919,11 +856,7 @@ class PipelineOrchestrator:
         # This is stable and reasonably performant when run-length sampling isn't available.
         candidates_fallback: List[Path] = []
         try:
-            candidates_fallback = (
-                sorted_candidates
-                if sorted_candidates
-                else sorted(parquet_dir.glob("cdx-*.gz.parquet"))
-            )
+            candidates_fallback = sorted_candidates if sorted_candidates else sorted(parquet_dir.glob("cdx-*.gz.parquet"))
         except Exception:
             candidates_fallback = sorted_candidates
         if not candidates_fallback:
@@ -987,9 +920,7 @@ class PipelineOrchestrator:
                 continue
 
         if not parquet_roots:
-            logger.warning(
-                f"Domain-year index update requested, but no parquet roots found for year {year}"
-            )
+            logger.warning(f"Domain-year index update requested, but no parquet roots found for year {year}")
             return True
 
         # Fast-path: if the output DB fingerprints match the on-disk Parquet set,
@@ -999,24 +930,16 @@ class PipelineOrchestrator:
                 ok_all = True
                 details: List[str] = []
                 for pq_root in parquet_roots:
-                    ok, detail = self._duckdb_fingerprints_up_to_date(
-                        db_path=out_db, parquet_root=pq_root
-                    )
+                    ok, detail = self._duckdb_fingerprints_up_to_date(db_path=out_db, parquet_root=pq_root)
                     details.append(f"{pq_root}: {detail}")
                     if not ok:
                         ok_all = False
                 if ok_all:
-                    logger.info(
-                        f"[domain-year-index:{year}] Up-to-date; skipping ({'; '.join(details)})"
-                    )
+                    logger.info(f"[domain-year-index:{year}] Up-to-date; skipping ({'; '.join(details)})")
                     return True
-                logger.info(
-                    f"[domain-year-index:{year}] Not up-to-date; updating ({'; '.join(details)})"
-                )
+                logger.info(f"[domain-year-index:{year}] Not up-to-date; updating ({'; '.join(details)})")
             except Exception as e:
-                logger.warning(
-                    f"[domain-year-index:{year}] Freshness check failed; updating anyway: {e}"
-                )
+                logger.warning(f"[domain-year-index:{year}] Freshness check failed; updating anyway: {e}")
 
         for pq_root in parquet_roots:
             cmd = [
@@ -1038,9 +961,7 @@ class PipelineOrchestrator:
                 heartbeat_label=f"domain-year-index:{year}",
             )
             if rc != 0:
-                logger.error(
-                    f"Failed to update domain-year index for {year} from {pq_root} (exit {rc})"
-                )
+                logger.error(f"Failed to update domain-year index for {year} from {pq_root} (exit {rc})")
                 return False
 
         logger.info(f"Updated domain-year index for {year}: {out_db}")
@@ -1053,7 +974,7 @@ class PipelineOrchestrator:
         the current working directory for helper script discovery is fragile.
         """
 
-        return Path(__file__).resolve().parent / filename
+        return (Path(__file__).resolve().parent / filename)
 
     def _get_collection_parquet_dir(self, collection: str) -> Path:
         """Return the on-disk parquet directory for a collection.
@@ -1111,9 +1032,7 @@ class PipelineOrchestrator:
         sorted_candidates = [p for p in candidates if p.name.endswith(".sorted.parquet")]
         return sorted(sorted_candidates if sorted_candidates else candidates)
 
-    def _duckdb_fingerprints_up_to_date(
-        self, *, db_path: Path, parquet_root: Path
-    ) -> tuple[bool, str]:
+    def _duckdb_fingerprints_up_to_date(self, *, db_path: Path, parquet_root: Path) -> tuple[bool, str]:
         """Return (up_to_date, detail) based on cc_indexed_parquet_files."""
 
         if not db_path.exists():
@@ -1144,11 +1063,7 @@ class PipelineOrchestrator:
                 conn.close()
         except Exception as e:
             msg = str(e)
-            if (
-                "Conflicting lock is held" in msg
-                or "Could not set lock" in msg
-                or "conflicting" in msg.lower()
-            ):
+            if "Conflicting lock is held" in msg or "Could not set lock" in msg or "conflicting" in msg.lower():
                 return False, "db locked"
             return False, f"db unreadable: {e}"
 
@@ -1166,16 +1081,14 @@ class PipelineOrchestrator:
         extra = have_keys - exp_keys
         mismatched = 0
         mismatched_example: Optional[str] = None
-        for k in exp_keys & have_keys:
+        for k in (exp_keys & have_keys):
             if expected.get(k) != have.get(k):
                 mismatched += 1
                 if mismatched_example is None:
                     try:
                         exp_sz, exp_mt = expected.get(k, (-1, -1))
                         have_sz, have_mt = have.get(k, (-1, -1))
-                        mismatched_example = (
-                            f"{k} (expected sz={exp_sz},mt={exp_mt} got sz={have_sz},mt={have_mt})"
-                        )
+                        mismatched_example = f"{k} (expected sz={exp_sz},mt={exp_mt} got sz={have_sz},mt={have_mt})"
                     except Exception:
                         mismatched_example = str(k)
 
@@ -1228,10 +1141,7 @@ class PipelineOrchestrator:
         if expected_row_group_size is not None:
             try:
                 if int(data.get("row_group_size")) != int(expected_row_group_size):
-                    return (
-                        False,
-                        f"marker row_group_size={data.get('row_group_size')} expected={expected_row_group_size}",
-                    )
+                    return False, f"marker row_group_size={data.get('row_group_size')} expected={expected_row_group_size}"
             except Exception:
                 return False, "marker missing row_group_size"
 
@@ -1242,9 +1152,7 @@ class PipelineOrchestrator:
 
         try:
             expected_files = len(self._iter_candidate_parquet_files(Path(parquet_root)))
-            marker_files = (
-                int(data.get("file_count")) if data.get("file_count") is not None else None
-            )
+            marker_files = int(data.get("file_count")) if data.get("file_count") is not None else None
             if marker_files is not None and marker_files != expected_files:
                 return False, f"marker file_count={marker_files} expected={expected_files}"
         except Exception:
@@ -1253,17 +1161,17 @@ class PipelineOrchestrator:
         created_at = data.get("created_at")
         suffix = f"created_at={created_at}" if created_at else str(marker.name)
         return True, f"marker ok ({suffix})"
-
+        
     def get_all_collections(self) -> List[str]:
         """Get all available CC collections using validator"""
         collections = list(self.validator.get_all_collections())
-
+        
         # Apply filter if specified
         if self.config.collections_filter:
             collections = [c for c in collections if self.config.collections_filter in c]
-
+        
         return sorted(collections)
-
+    
     def scan_all_collections(self):
         """Scan status of all collections using validator"""
         self.collections = self.get_all_collections()
@@ -1289,7 +1197,7 @@ class PipelineOrchestrator:
                 eta = f"~{eta_min:.1f} min" if eta_min is not None else "unknown"
                 logger.info(
                     f"[scan] Heartbeat: {last_done}/{total} validated; next={collection}; "
-                    f"elapsed {elapsed / 60:.1f} min; eta {eta}"
+                    f"elapsed {elapsed/60:.1f} min; eta {eta}"
                 )
                 last_hb = now
 
@@ -1328,7 +1236,7 @@ class PipelineOrchestrator:
 
             self.collection_status[collection] = status
             last_done = idx
-
+    
     def get_available_memory_gb(self) -> float:
         """Get available system memory in GB.
 
@@ -1337,7 +1245,7 @@ class PipelineOrchestrator:
         """
 
         return float(_effective_available_memory_bytes()) / (1024.0**3)
-
+    
     def get_free_space_gb(self, path: Path) -> float:
         """Get free disk space in GB"""
         p = Path(path)
@@ -1350,8 +1258,8 @@ class PipelineOrchestrator:
             p = Path("/")
 
         usage = shutil.disk_usage(str(p))
-        return usage.free / (1024**3)
-
+        return usage.free / (1024 ** 3)
+    
     def check_resources(self) -> bool:
         """Check if we have enough resources to proceed"""
         mem_gb = self.get_available_memory_gb()
@@ -1381,7 +1289,7 @@ class PipelineOrchestrator:
             logger.warning(
                 f"Proceeding despite low memory (within {tolerance:.1f} GB tolerance); performance may be reduced"
             )
-
+        
         extra_roots: list[Path] = []
         try:
             if bool(getattr(self.config, "build_domain_rowgroup_index", False)):
@@ -1398,21 +1306,14 @@ class PipelineOrchestrator:
         except Exception:
             pass
 
-        for path in [
-            self.config.ccindex_root,
-            self.config.parquet_root,
-            self.config.duckdb_collection_root,
-            *extra_roots,
-        ]:
+        for path in [self.config.ccindex_root, self.config.parquet_root, self.config.duckdb_collection_root, *extra_roots]:
             free_gb = self.get_free_space_gb(path)
             if free_gb < self.config.min_free_space_gb:
-                logger.warning(
-                    f"Low disk space at {path}: {free_gb:.1f} GB free, need {self.config.min_free_space_gb:.1f} GB"
-                )
+                logger.warning(f"Low disk space at {path}: {free_gb:.1f} GB free, need {self.config.min_free_space_gb:.1f} GB")
                 return False
-
+        
         return True
-
+    
     def download_collection(self, collection: str) -> bool:
         """Download a collection's .gz files using existing download script"""
         logger.info(f"Downloading {collection}...")
@@ -1424,7 +1325,7 @@ class PipelineOrchestrator:
                 "or set $CCINDEX_DOWNLOAD_SCRIPT to an explicit path."
             )
             return False
-
+        
         # Download to collection-specific directory
         collection_dir = self.config.ccindex_root / collection
         collection_dir.mkdir(parents=True, exist_ok=True)
@@ -1491,11 +1392,7 @@ class PipelineOrchestrator:
         """Only run Stage 1 (download) for the selected collections."""
 
         self.scan_all_collections()
-        targets = [
-            c
-            for c, s in self.collection_status.items()
-            if s.get("tar_gz_count", 0) < s.get("tar_gz_expected", 0)
-        ]
+        targets = [c for c, s in self.collection_status.items() if s.get("tar_gz_count", 0) < s.get("tar_gz_expected", 0)]
         if not targets:
             logger.info("All selected collections already have their cdx-*.gz shards downloaded")
             return
@@ -1511,11 +1408,11 @@ class PipelineOrchestrator:
             self.collection_status[collection] = self.validator.validate_collection(collection)
             if not ok:
                 raise SystemExit(f"Download failed for {collection}")
-
+    
     def convert_collection(self, collection: str, sort_after: bool = True) -> bool:
         """Convert a collection's .gz files to parquet, optionally sorting immediately"""
         logger.info(f"Converting {collection} to parquet (sort_after={sort_after})...")
-
+        
         ccindex_dir = self.config.ccindex_root / collection
 
         parquet_dir = self._get_collection_parquet_dir(collection)
@@ -1550,10 +1447,7 @@ class PipelineOrchestrator:
 
                     # Unconfirmed empty: remove sorted shard so conversion+sorting can rebuild it.
                     sorted_file.unlink(missing_ok=True)
-                    work_dir = (
-                        parquet_dir
-                        / f".cc_sort_work_{sorted_file.name.replace('.gz.sorted.parquet', '.gz.parquet')}"
-                    )
+                    work_dir = parquet_dir / f".cc_sort_work_{sorted_file.name.replace('.gz.sorted.parquet', '.gz.parquet')}"
                     if work_dir.exists() and work_dir.is_dir():
                         shutil.rmtree(work_dir, ignore_errors=True)
                     invalidated += 1
@@ -1583,29 +1477,23 @@ class PipelineOrchestrator:
                 )
         except Exception as e:
             logger.warning(f"Empty-sorted preflight skipped due to error: {e}")
-
+        
         # Count existing parquet files to track resume progress
         existing_parquet = list(parquet_dir.glob("cdx-*.gz.parquet"))
         existing_sorted = list(parquet_dir.glob("cdx-*.gz.sorted.parquet"))
-        logger.info(
-            f"  Resume: {len(existing_parquet)} parquet, {len(existing_sorted)} sorted already exist"
-        )
-
+        logger.info(f"  Resume: {len(existing_parquet)} parquet, {len(existing_sorted)} sorted already exist")
+        
         # Use bulk_convert_gz_to_parquet.py to convert (it has skip_existing logic)
         convert_script = self._resolve_ccindex_helper_script("bulk_convert_gz_to_parquet.py")
         cmd = [
             sys.executable,
             str(convert_script),
-            "--input-dir",
-            str(ccindex_dir),
-            "--output-dir",
-            str(parquet_dir),
-            "--workers",
-            str(self.config.max_workers),
-            "--heartbeat-seconds",
-            str(int(getattr(self.config, "heartbeat_seconds", 30) or 30)),
+            "--input-dir", str(ccindex_dir),
+            "--output-dir", str(parquet_dir),
+            "--workers", str(self.config.max_workers),
+            "--heartbeat-seconds", str(int(getattr(self.config, "heartbeat_seconds", 30) or 30)),
         ]
-
+        
         def _count_converted_unique() -> Tuple[int, int]:
             """Return (converted_unique, expected_gz_count).
 
@@ -1629,10 +1517,7 @@ class PipelineOrchestrator:
             gz_files = sorted(ccindex_dir.glob("cdx-*.gz"))
             expected_names = [f"{p.name}.parquet" for p in gz_files]
             present = {p.name for p in parquet_dir.glob("cdx-*.gz.parquet")}
-            present |= {
-                p.name.replace(".gz.sorted.parquet", ".gz.parquet")
-                for p in parquet_dir.glob("cdx-*.gz.sorted.parquet")
-            }
+            present |= {p.name.replace(".gz.sorted.parquet", ".gz.parquet") for p in parquet_dir.glob("cdx-*.gz.sorted.parquet")}
             missing = [n for n in expected_names if n not in present]
             return missing[: max(0, int(limit))]
 
@@ -1672,9 +1557,7 @@ class PipelineOrchestrator:
                 return False
 
             if before_converted >= expected:
-                logger.info(
-                    f"Converted {collection} already complete ({before_converted}/{expected})"
-                )
+                logger.info(f"Converted {collection} already complete ({before_converted}/{expected})")
                 break
 
             if attempt > 1:
@@ -1740,7 +1623,7 @@ class PipelineOrchestrator:
             logger.info(f"Sorting newly converted files for {collection}...")
             return self.sort_collection(collection)
         return True
-
+    
     def sort_collection(self, collection: str) -> bool:
         """Sort a collection's parquet files by (host_rev, url, ts).
 
@@ -1753,7 +1636,7 @@ class PipelineOrchestrator:
 
         parquet_dir = self._get_collection_parquet_dir(collection)
         ccindex_dir = self.config.ccindex_root / collection
-
+        
         if not parquet_dir.exists():
             logger.error(f"Parquet directory does not exist: {parquet_dir}")
             return False
@@ -1773,13 +1656,9 @@ class PipelineOrchestrator:
                     unsorted_candidate.unlink()
                     removed_dupes += 1
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to remove duplicate unsorted parquet {unsorted_candidate}: {e}"
-                    )
+                    logger.warning(f"Failed to remove duplicate unsorted parquet {unsorted_candidate}: {e}")
         if removed_dupes:
-            logger.info(
-                f"Pre-cleaned {removed_dupes} duplicate unsorted parquet file(s) for {collection}"
-            )
+            logger.info(f"Pre-cleaned {removed_dupes} duplicate unsorted parquet file(s) for {collection}")
 
         # Some older/partial runs produced parquet files without the required
         # columns for downstream sorting/indexing (host_rev/url/ts). Detect and
@@ -1804,9 +1683,7 @@ class PipelineOrchestrator:
                 logger.warning(
                     f"Found {len(legacy_files)} parquet file(s) with legacy/invalid schema; rebuilding before sorting"
                 )
-                convert_script = self._resolve_ccindex_helper_script(
-                    "bulk_convert_gz_to_parquet.py"
-                )
+                convert_script = self._resolve_ccindex_helper_script("bulk_convert_gz_to_parquet.py")
                 rebuild_cmd = [
                     sys.executable,
                     str(convert_script),
@@ -1819,9 +1696,7 @@ class PipelineOrchestrator:
                 ]
                 rebuild = subprocess.run(rebuild_cmd)
                 if rebuild.returncode != 0:
-                    logger.error(
-                        f"Failed to rebuild legacy parquet files for {collection} (exit {rebuild.returncode})"
-                    )
+                    logger.error(f"Failed to rebuild legacy parquet files for {collection} (exit {rebuild.returncode})")
                     return False
 
             # Ensure derived parquet shards carry required provenance columns.
@@ -1844,9 +1719,7 @@ class PipelineOrchestrator:
                 logger.warning(
                     f"Found parquet shard(s) missing required columns {{'collection','shard_file'}} for {collection}; repairing before sort/rewrite"
                 )
-                repair_script = self._resolve_ccindex_helper_script(
-                    "repair_legacy_parquet_columns.py"
-                )
+                repair_script = self._resolve_ccindex_helper_script("repair_legacy_parquet_columns.py")
                 repair_cmd = [
                     sys.executable,
                     str(repair_script),
@@ -1860,19 +1733,13 @@ class PipelineOrchestrator:
                 ]
                 repair_rc = subprocess.run(repair_cmd).returncode
                 if repair_rc != 0:
-                    logger.error(
-                        f"Failed to repair parquet provenance columns for {collection} (exit {repair_rc})"
-                    )
+                    logger.error(f"Failed to repair parquet provenance columns for {collection} (exit {repair_rc})")
                     return False
         except Exception as e:
             logger.warning(f"Legacy schema check skipped due to error: {e}")
-
+        
         try:
-            sort_workers = (
-                int(self.config.sort_workers)
-                if self.config.sort_workers
-                else max(1, int(self.config.max_workers))
-            )
+            sort_workers = int(self.config.sort_workers) if self.config.sort_workers else max(1, int(self.config.max_workers))
             sort_mem_gb = float(getattr(self.config, "sort_memory_per_worker_gb", 4.0) or 4.0)
 
             # Avoid oversubscribing memory and getting workers OOM-killed (which
@@ -1883,9 +1750,7 @@ class PipelineOrchestrator:
                 # Note: psutil.available maps to Linux MemAvailable, which may undercount
                 # ZFS ARC reclaimable memory. If CC_ARC_FRACTION is set (>0), include a
                 # fraction of ARC reclaimable bytes in the available estimate.
-                base_b, arc_reclaim_b, arc_frac, eff_b = (
-                    _effective_available_memory_components_bytes()
-                )
+                base_b, arc_reclaim_b, arc_frac, eff_b = _effective_available_memory_components_bytes()
                 avail_gb = float(eff_b) / (1024.0**3)
                 # Keep some headroom for Python/Arrow/OS page cache.
                 mem_budget = max(1.0, avail_gb * 0.8)
@@ -1895,14 +1760,14 @@ class PipelineOrchestrator:
                         logger.warning(
                             f"Reducing sort-workers for {collection} from {sort_workers} to {max_parallel_by_mem} "
                             f"to fit available RAM (avail≈{avail_gb:.1f}GB, mem_budget≈{mem_budget:.1f}GB, mem_per_sort={sort_mem_gb}GB; "
-                            f"base_avail≈{base_b / (1024.0**3):.1f}GB, arc_reclaim≈{arc_reclaim_b / (1024.0**3):.1f}GB, arc_frac={arc_frac:.2f})"
+                            f"base_avail≈{base_b/(1024.0**3):.1f}GB, arc_reclaim≈{arc_reclaim_b/(1024.0**3):.1f}GB, arc_frac={arc_frac:.2f})"
                         )
                         sort_workers = max_parallel_by_mem
                     else:
                         logger.warning(
                             f"sort-workers={sort_workers} may exceed safe parallelism for available RAM "
                             f"(avail≈{avail_gb:.1f}GB, mem_budget≈{mem_budget:.1f}GB, mem_per_sort={sort_mem_gb}GB; "
-                            f"base_avail≈{base_b / (1024.0**3):.1f}GB, arc_reclaim≈{arc_reclaim_b / (1024.0**3):.1f}GB, arc_frac={arc_frac:.2f}). "
+                            f"base_avail≈{base_b/(1024.0**3):.1f}GB, arc_reclaim≈{arc_reclaim_b/(1024.0**3):.1f}GB, arc_frac={arc_frac:.2f}). "
                             "Proceeding because --sort-workers was explicitly set."
                         )
             except Exception:
@@ -1953,9 +1818,7 @@ class PipelineOrchestrator:
                     if n > 0:
                         sorted_shards = sorted(parquet_dir.glob("cdx-*.gz.sorted.parquet"))
                         if not sorted_shards:
-                            logger.warning(
-                                f"rewrite_sorted_limit={n} requested but no *.gz.sorted.parquet shards found"
-                            )
+                            logger.warning(f"rewrite_sorted_limit={n} requested but no *.gz.sorted.parquet shards found")
                         else:
                             n = min(n, len(sorted_shards))
 
@@ -1963,10 +1826,7 @@ class PipelineOrchestrator:
                             if n == 1:
                                 picks = [sorted_shards[len(sorted_shards) // 2]]
                             else:
-                                idxs = [
-                                    int(round(i * (len(sorted_shards) - 1) / (n - 1)))
-                                    for i in range(n)
-                                ]
+                                idxs = [int(round(i * (len(sorted_shards) - 1) / (n - 1))) for i in range(n)]
                                 picks = [sorted_shards[i] for i in idxs]
 
                             logger.info(
@@ -1983,9 +1843,7 @@ class PipelineOrchestrator:
             if row_group_size is not None:
                 try:
                     if int(row_group_size) > 0:
-                        logger.info(
-                            f"Using row_group_size={int(row_group_size):,} rows for {collection}"
-                        )
+                        logger.info(f"Using row_group_size={int(row_group_size):,} rows for {collection}")
                         cmd.extend(["--row-group-size", str(int(row_group_size))])
                 except Exception:
                     pass
@@ -2013,13 +1871,7 @@ class PipelineOrchestrator:
                     expected_stems = set()
                     for n in only_names:
                         stem = n
-                        for suf in (
-                            ".gz.sorted.parquet",
-                            ".gz.parquet",
-                            ".sorted.parquet",
-                            ".parquet",
-                            ".gz",
-                        ):
+                        for suf in (".gz.sorted.parquet", ".gz.parquet", ".sorted.parquet", ".parquet", ".gz"):
                             if stem.endswith(suf):
                                 stem = stem[: -len(suf)]
                                 break
@@ -2032,9 +1884,7 @@ class PipelineOrchestrator:
                     ccindex_dir=ccindex_dir,
                     sort_temp_dir=sort_temp_dir,
                     baseline_sort_mem_gb=sort_mem_gb,
-                    failure_output_tail=list(
-                        getattr(self, "_last_subprocess_output_tail", []) or []
-                    ),
+                    failure_output_tail=list(getattr(self, "_last_subprocess_output_tail", []) or []),
                     expected_stems=expected_stems,
                 )
                 if not healed:
@@ -2058,21 +1908,15 @@ class PipelineOrchestrator:
             # Remove those duplicates so counts reflect unique shards.
             removed = 0
             for sorted_file in parquet_dir.glob("cdx-*.gz.sorted.parquet"):
-                unsorted_candidate = sorted_file.with_name(
-                    sorted_file.name.replace(".gz.sorted.parquet", ".gz.parquet")
-                )
+                unsorted_candidate = sorted_file.with_name(sorted_file.name.replace(".gz.sorted.parquet", ".gz.parquet"))
                 if unsorted_candidate.exists():
                     try:
                         unsorted_candidate.unlink()
                         removed += 1
                     except Exception as e:
-                        logger.warning(
-                            f"Failed to remove duplicate unsorted parquet {unsorted_candidate}: {e}"
-                        )
+                        logger.warning(f"Failed to remove duplicate unsorted parquet {unsorted_candidate}: {e}")
             if removed:
-                logger.info(
-                    f"Removed {removed} duplicate unsorted parquet file(s) for {collection}"
-                )
+                logger.info(f"Removed {removed} duplicate unsorted parquet file(s) for {collection}")
 
             if getattr(self.config, "cleanup_extraneous", False):
                 self.cleanup_collection_extraneous(collection)
@@ -2173,10 +2017,7 @@ class PipelineOrchestrator:
                 except Exception:
                     pass
 
-        present_sorted = {
-            p.name[: -len(".gz.sorted.parquet")]
-            for p in parquet_dir.glob("cdx-*.gz.sorted.parquet")
-        }
+        present_sorted = {p.name[: -len(".gz.sorted.parquet")] for p in parquet_dir.glob("cdx-*.gz.sorted.parquet")}
         missing = sorted(expected - present_sorted)
 
         # If we have explicit failing stems, treat them as missing targets even if
@@ -2190,9 +2031,7 @@ class PipelineOrchestrator:
             )
             return False
 
-        logger.warning(
-            f"Attempting sort auto-heal for {collection}: missing {len(missing)} sorted shard(s): {missing[:10]}{'...' if len(missing) > 10 else ''}"
-        )
+        logger.warning(f"Attempting sort auto-heal for {collection}: missing {len(missing)} sorted shard(s): {missing[:10]}{'...' if len(missing) > 10 else ''}")
 
         sort_script = self._resolve_ccindex_helper_script("validate_and_mark_sorted.py")
         convert_script = self._resolve_ccindex_helper_script("bulk_convert_gz_to_parquet.py")
@@ -2332,9 +2171,7 @@ class PipelineOrchestrator:
             if _reconvert_shard(stem):
                 for mem in mem_candidates:
                     if _run_targeted_sort(stem, memory_gb=mem):
-                        logger.info(
-                            f"Healed sort for {collection}/{stem} after re-download + reconvert"
-                        )
+                        logger.info(f"Healed sort for {collection}/{stem} after re-download + reconvert")
                         break
 
             if not _sorted_path(stem).exists():
@@ -2368,9 +2205,7 @@ class PipelineOrchestrator:
 
             url = url_map.get(gz_name)
             if not url:
-                logger.warning(
-                    f"No known download URL for {collection}/{gz_name}; cannot auto-heal this shard"
-                )
+                logger.warning(f"No known download URL for {collection}/{gz_name}; cannot auto-heal this shard")
                 continue
 
             try:
@@ -2408,9 +2243,7 @@ class PipelineOrchestrator:
             try:
                 paths = [
                     line.strip()
-                    for line in index_list_path.read_text(
-                        encoding="utf-8", errors="ignore"
-                    ).splitlines()
+                    for line in index_list_path.read_text(encoding="utf-8", errors="ignore").splitlines()
                     if line.strip().endswith(".gz")
                 ]
             except Exception:
@@ -2445,9 +2278,7 @@ class PipelineOrchestrator:
             url_map[name] = f"https://data.commoncrawl.org/{p}"
         return url_map
 
-    def _download_to_file(
-        self, *, url: str, dest_path: Path, retries: int, timeout_seconds: int
-    ) -> bool:
+    def _download_to_file(self, *, url: str, dest_path: Path, retries: int, timeout_seconds: int) -> bool:
         """Download a URL to a local file atomically."""
 
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2489,17 +2320,17 @@ class PipelineOrchestrator:
             return True
         except Exception:
             return False
-
+    
     def build_index_for_collection(self, collection: str) -> bool:
         """Build DuckDB pointer index for a collection"""
         logger.info(f"Building DuckDB index for {collection}...")
-
+        
         parquet_dir = self._get_collection_parquet_dir(collection)
-
+        
         if not parquet_dir.exists():
             logger.error(f"Parquet directory does not exist: {parquet_dir}")
             return False
-
+        
         # Store per-collection indexes in cc_pointers_by_collection
         duckdb_dir = self.config.duckdb_collection_root
         duckdb_dir.mkdir(parents=True, exist_ok=True)
@@ -2513,10 +2344,8 @@ class PipelineOrchestrator:
             sys.executable,
             "-u",
             str(build_script),
-            "--parquet-root",
-            str(parquet_dir),
-            "--output-db",
-            str(duckdb_path),
+            "--parquet-root", str(parquet_dir),
+            "--output-db", str(duckdb_path),
             "--extract-rowgroups",
             "--db-lock-retries",
             "120",
@@ -2582,29 +2411,21 @@ class PipelineOrchestrator:
                             parquet_dir=parquet_dir,
                             ccindex_dir=self.config.ccindex_root / collection,
                             sort_temp_dir=_ensure_sort_temp_dir(),
-                            baseline_sort_mem_gb=float(
-                                getattr(self.config, "sort_memory_per_worker_gb", 4.0) or 4.0
-                            ),
+                            baseline_sort_mem_gb=float(getattr(self.config, "sort_memory_per_worker_gb", 4.0) or 4.0),
                         )
                         if healed:
-                            logger.info(
-                                f"Shard heal complete; retrying index build for {collection}"
-                            )
+                            logger.info(f"Shard heal complete; retrying index build for {collection}")
                             rc2 = self._run_subprocess_with_heartbeat(
                                 cmd,
                                 heartbeat_label=f"index:{collection}",
                                 capture_tail_lines=500,
                             )
                             if rc2 != 0:
-                                logger.error(
-                                    f"Index rebuild still failing for {collection} (exit {rc2})"
-                                )
+                                logger.error(f"Index rebuild still failing for {collection} (exit {rc2})")
                                 return False
                             logger.info(f"Built DuckDB index for {collection} after shard heal")
                         else:
-                            logger.error(
-                                f"Shard heal failed; cannot continue indexing for {collection}"
-                            )
+                            logger.error(f"Shard heal failed; cannot continue indexing for {collection}")
                             return False
                     else:
                         logger.error(
@@ -2615,11 +2436,10 @@ class PipelineOrchestrator:
                     return False
 
             logger.info(f"Built DuckDB index for {collection}")
-
+            
             # Verify the index was created and has data
             import duckdb
             import time
-
             try:
                 # If file is locked by another process, just check existence
                 if duckdb_path.exists():
@@ -2631,74 +2451,52 @@ class PipelineOrchestrator:
                             conn = duckdb.connect(str(duckdb_path), read_only=True)
                             # Check which table exists
                             tables = [row[0] for row in conn.execute("SHOW TABLES").fetchall()]
-
-                            if "domain_pointers" in tables:
-                                row_count = conn.execute(
-                                    "SELECT COUNT(*) FROM domain_pointers"
-                                ).fetchone()[0]
-                                first_domain_query = (
-                                    "SELECT domain FROM domain_pointers ORDER BY domain LIMIT 1"
-                                )
-                            elif "cc_domain_shards" in tables:
-                                row_count = conn.execute(
-                                    "SELECT COUNT(*) FROM cc_domain_shards"
-                                ).fetchone()[0]
-                                first_domain_query = (
-                                    "SELECT host FROM cc_domain_shards ORDER BY host LIMIT 1"
-                                )
+                            
+                            if 'domain_pointers' in tables:
+                                row_count = conn.execute("SELECT COUNT(*) FROM domain_pointers").fetchone()[0]
+                                first_domain_query = "SELECT domain FROM domain_pointers ORDER BY domain LIMIT 1"
+                            elif 'cc_domain_shards' in tables:
+                                row_count = conn.execute("SELECT COUNT(*) FROM cc_domain_shards").fetchone()[0]
+                                first_domain_query = "SELECT host FROM cc_domain_shards ORDER BY host LIMIT 1"
                             else:
                                 logger.warning(f"  Unknown table schema in index, tables: {tables}")
                                 conn.close()
                                 return True
-
+                            
                             logger.info(f"  Index contains {row_count:,} entries")
 
-                            if "cc_parquet_rowgroups" in tables:
+                            if 'cc_parquet_rowgroups' in tables:
                                 try:
-                                    rg_count = conn.execute(
-                                        "SELECT COUNT(*) FROM cc_parquet_rowgroups"
-                                    ).fetchone()[0]
+                                    rg_count = conn.execute("SELECT COUNT(*) FROM cc_parquet_rowgroups").fetchone()[0]
                                     logger.info(f"  Rowgroup ranges: {rg_count:,}")
                                 except Exception as e:
-                                    logger.warning(
-                                        f"  Failed to read cc_parquet_rowgroups stats: {e}"
-                                    )
-
+                                    logger.warning(f"  Failed to read cc_parquet_rowgroups stats: {e}")
+                            
                             # Check first entry
                             first_domain = conn.execute(first_domain_query).fetchone()
                             if first_domain:
                                 logger.info(f"  First domain: {first_domain[0]}")
-
+                            
                             # Check if sorted
                             is_sorted = False
-                            if "domain_pointers" in tables:
-                                domains = [
-                                    row[0]
-                                    for row in conn.execute(
-                                        "SELECT domain FROM domain_pointers LIMIT 1000"
-                                    ).fetchall()
-                                ]
+                            if 'domain_pointers' in tables:
+                                domains = [row[0] for row in conn.execute("SELECT domain FROM domain_pointers LIMIT 1000").fetchall()]
                                 is_sorted = domains == sorted(domains)
                                 sort_column = "domain"
                                 table_name = "domain_pointers"
-                            elif "cc_domain_shards" in tables:
-                                hosts = [
-                                    row[0]
-                                    for row in conn.execute(
-                                        "SELECT host_rev FROM cc_domain_shards LIMIT 1000"
-                                    ).fetchall()
-                                ]
+                            elif 'cc_domain_shards' in tables:
+                                hosts = [row[0] for row in conn.execute("SELECT host_rev FROM cc_domain_shards LIMIT 1000").fetchall()]
                                 is_sorted = hosts == sorted(hosts)
                                 sort_column = "host_rev"
                                 table_name = "cc_domain_shards"
-
+                            
                             logger.info(f"  Index is sorted: {is_sorted}")
                             conn.close()
-
+                            
                             if not is_sorted:
                                 logger.info(f"  Sorting index by {sort_column}...")
                                 conn = duckdb.connect(str(duckdb_path))
-
+                                
                                 if table_name == "domain_pointers":
                                     conn.execute("""
                                         CREATE TABLE domain_pointers_sorted AS 
@@ -2706,9 +2504,7 @@ class PipelineOrchestrator:
                                         ORDER BY domain, parquet_file, row_start;
                                     """)
                                     conn.execute("DROP TABLE domain_pointers;")
-                                    conn.execute(
-                                        "ALTER TABLE domain_pointers_sorted RENAME TO domain_pointers;"
-                                    )
+                                    conn.execute("ALTER TABLE domain_pointers_sorted RENAME TO domain_pointers;")
                                 elif table_name == "cc_domain_shards":
                                     conn.execute("""
                                         CREATE TABLE cc_domain_shards_sorted AS 
@@ -2716,25 +2512,18 @@ class PipelineOrchestrator:
                                         ORDER BY host_rev, shard_file;
                                     """)
                                     conn.execute("DROP TABLE cc_domain_shards;")
-                                    conn.execute(
-                                        "ALTER TABLE cc_domain_shards_sorted RENAME TO cc_domain_shards;"
-                                    )
-
+                                    conn.execute("ALTER TABLE cc_domain_shards_sorted RENAME TO cc_domain_shards;")
+                                
                                 conn.close()
                                 logger.info(f"  ✓ Index sorted by {sort_column}")
-
+                            
                             # Mark as sorted
-                            sorted_marker = duckdb_path.with_suffix(".duckdb.sorted")
+                            sorted_marker = duckdb_path.with_suffix('.duckdb.sorted')
                             sorted_marker.touch()
                             logger.info(f"  ✓ Index marked as sorted")
                         except Exception as lock_error:
-                            if (
-                                "lock" in str(lock_error).lower()
-                                or "conflicting" in str(lock_error).lower()
-                            ):
-                                logger.warning(
-                                    f"  Index is locked by another process, skipping verification"
-                                )
+                            if "lock" in str(lock_error).lower() or "conflicting" in str(lock_error).lower():
+                                logger.warning(f"  Index is locked by another process, skipping verification")
                             else:
                                 raise
                         return True
@@ -2747,7 +2536,7 @@ class PipelineOrchestrator:
             except Exception as verify_error:
                 logger.error(f"Failed to verify index: {verify_error}")
                 return False
-
+                
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to build index for {collection}: {e}")
             if e.stdout:
@@ -2763,9 +2552,7 @@ class PipelineOrchestrator:
         return Path(root).expanduser().resolve()
 
     def _domain_rowgroup_index_path(self, collection: str) -> Path:
-        return (
-            self._domain_rowgroup_index_root() / f"{collection}.domain_rowgroups.duckdb"
-        ).resolve()
+        return (self._domain_rowgroup_index_root() / f"{collection}.domain_rowgroups.duckdb").resolve()
 
     def _invalidate_domain_rowgroup_index(self, collection: str) -> None:
         p = self._domain_rowgroup_index_path(collection)
@@ -2833,14 +2620,12 @@ class PipelineOrchestrator:
             return False
 
         try:
-            logger.info(
-                f"Built domain rowgroup index for {collection}: {out_db} ({out_db.stat().st_size:,} bytes)"
-            )
+            logger.info(f"Built domain rowgroup index for {collection}: {out_db} ({out_db.stat().st_size:,} bytes)")
         except Exception:
             logger.info(f"Built domain rowgroup index for {collection}: {out_db}")
 
         return True
-
+    
     def process_collection(self, collection: str) -> bool:
         """Process a single collection through all pipeline stages"""
         status = self.validator.validate_collection(collection)
@@ -2852,78 +2637,62 @@ class PipelineOrchestrator:
             status["duckdb_index_exists"] = False
             status["duckdb_index_sorted"] = False
             status["complete"] = False
-
+        
         logger.info(f"\nProcessing {collection}:")
-        sources_required = status["parquet_count"] < status["parquet_expected"]
+        sources_required = status['parquet_count'] < status['parquet_expected']
         sources_note = "" if sources_required else " (optional; parquet complete)"
-        logger.info(
-            f"  Sources: {status['tar_gz_count']}/{status['tar_gz_expected']}{sources_note}"
-        )
+        logger.info(f"  Sources: {status['tar_gz_count']}/{status['tar_gz_expected']}{sources_note}")
         logger.info(f"  Converted: {status['parquet_count']}/{status['parquet_expected']}")
         logger.info(f"  Sorted: {status['sorted_count']}/{status['parquet_expected']}")
-        logger.info(
-            f"  Indexed: {status['duckdb_index_exists']} (sorted: {status['duckdb_index_sorted']})"
-        )
+        logger.info(f"  Indexed: {status['duckdb_index_exists']} (sorted: {status['duckdb_index_sorted']})")
 
         rewrite_sorted = bool(getattr(self.config, "rewrite_sorted_parquet", False))
-        if status["complete"] and not rewrite_sorted:
+        if status['complete'] and not rewrite_sorted:
             logger.info(f"  ✓ {collection} is complete, skipping")
             # Optional post-completion cleanup (useful on resume runs).
-            if getattr(self.config, "cleanup_extraneous", False) or getattr(
-                self.config, "cleanup_source_archives", False
-            ):
+            if getattr(self.config, "cleanup_extraneous", False) or getattr(self.config, "cleanup_source_archives", False):
                 self.cleanup_collection_extraneous(collection)
             return True
-
+        
         # Check resources before each stage
         if not self.check_resources():
             logger.error("Insufficient resources, stopping")
             return False
-
+        
         # Stage 1: Download
         # Source shards are only required to (re)run Stage 2 conversions. If parquet
         # is already complete (e.g. after cleanup removed cdx-*.gz), do not
         # re-download sources just to satisfy tar_gz_count.
-        if sources_required and status["tar_gz_count"] < status["tar_gz_expected"]:
-            logger.info(
-                f"  Stage 1: Downloading {status['tar_gz_expected'] - status['tar_gz_count']} .gz files..."
-            )
+        if sources_required and status['tar_gz_count'] < status['tar_gz_expected']:
+            logger.info(f"  Stage 1: Downloading {status['tar_gz_expected'] - status['tar_gz_count']} .gz files...")
             if not self.download_collection(collection):
                 return False
             status = self.validator.validate_collection(collection)
             logger.info(f"  ✓ Downloaded: {status['tar_gz_count']}/{status['tar_gz_expected']}")
         elif sources_required:
-            logger.info(
-                f"  ✓ Stage 1: Downloads complete ({status['tar_gz_count']}/{status['tar_gz_expected']})"
-            )
+            logger.info(f"  ✓ Stage 1: Downloads complete ({status['tar_gz_count']}/{status['tar_gz_expected']})")
         else:
-            if status["tar_gz_count"] < status["tar_gz_expected"]:
+            if status['tar_gz_count'] < status['tar_gz_expected']:
                 logger.info(
                     "  ✓ Stage 1: Sources missing but not required "
                     f"(parquet complete: {status['parquet_count']}/{status['parquet_expected']})"
                 )
             else:
-                logger.info(
-                    f"  ✓ Stage 1: Downloads complete ({status['tar_gz_count']}/{status['tar_gz_expected']})"
-                )
-
+                logger.info(f"  ✓ Stage 1: Downloads complete ({status['tar_gz_count']}/{status['tar_gz_expected']})")
+        
         # Stage 2: Convert
-        if status["parquet_count"] < status["parquet_expected"]:
-            logger.info(
-                f"  Stage 2: Converting {status['parquet_expected'] - status['parquet_count']} parquet files..."
-            )
+        if status['parquet_count'] < status['parquet_expected']:
+            logger.info(f"  Stage 2: Converting {status['parquet_expected'] - status['parquet_count']} parquet files...")
             if not self.convert_collection(collection):
                 return False
             status = self.validator.validate_collection(collection)
             logger.info(f"  ✓ Converted: {status['parquet_count']}/{status['parquet_expected']}")
         else:
-            logger.info(
-                f"  ✓ Stage 2: Conversions complete ({status['parquet_count']}/{status['parquet_expected']})"
-            )
-
+            logger.info(f"  ✓ Stage 2: Conversions complete ({status['parquet_count']}/{status['parquet_expected']})")
+        
         # Stage 3: Sort (optionally rewrite already-sorted shards to apply an optimized row-group-size)
         force_sort = bool(getattr(self.config, "rewrite_sorted_parquet", False))
-        needs_sort = bool(status["sorted_count"] < status["parquet_expected"])
+        needs_sort = bool(status['sorted_count'] < status['parquet_expected'])
         did_stage3 = False
 
         if force_sort or needs_sort:
@@ -2942,35 +2711,23 @@ class PipelineOrchestrator:
                     expected_row_group_size=expected_rgs,
                     require_columns={"collection", "shard_file"},
                 )
-                sorted_complete = bool(
-                    status.get("sorted_count", 0) == status.get("parquet_expected", 0)
-                )
+                sorted_complete = bool(status.get("sorted_count", 0) == status.get("parquet_expected", 0))
 
                 # Secondary skip: if indexes already match current Parquet fingerprints,
                 # treat the collection as known-good and avoid rescanning Parquet.
                 idx_skip = False
                 idx_detail = ""
-                if (
-                    (not marker_ok)
-                    and sorted_complete
-                    and bool(getattr(self.config, "existing_parquet_only", False))
-                ):
+                if (not marker_ok) and sorted_complete and bool(getattr(self.config, "existing_parquet_only", False)):
                     try:
-                        idx_db = (
-                            self.config.duckdb_collection_root / f"{collection}.duckdb"
-                        ).resolve()
-                        idx_ok, idx_d = self._duckdb_fingerprints_up_to_date(
-                            db_path=idx_db, parquet_root=parquet_dir
-                        )
+                        idx_db = (self.config.duckdb_collection_root / f"{collection}.duckdb").resolve()
+                        idx_ok, idx_d = self._duckdb_fingerprints_up_to_date(db_path=idx_db, parquet_root=parquet_dir)
                         idx_detail = f"index:{idx_d}"
 
                         rg_ok = True
                         rg_d = "disabled"
                         if bool(getattr(self.config, "build_domain_rowgroup_index", True)):
                             rg_db = self._domain_rowgroup_index_path(collection)
-                            rg_ok, rg_d = self._duckdb_fingerprints_up_to_date(
-                                db_path=rg_db, parquet_root=parquet_dir
-                            )
+                            rg_ok, rg_d = self._duckdb_fingerprints_up_to_date(db_path=rg_db, parquet_root=parquet_dir)
                             idx_detail += f"; rowgroup_index:{rg_d}"
 
                         if idx_ok and rg_ok:
@@ -2982,16 +2739,12 @@ class PipelineOrchestrator:
                     why = marker_detail if marker_ok else idx_detail
                     logger.info(f"  ✓ Stage 3: Parquet already normalized; skipping ({why})")
                 else:
-                    logger.info(
-                        "  Stage 3: Rewriting sorted parquet files (row-group optimization enabled)..."
-                    )
+                    logger.info("  Stage 3: Rewriting sorted parquet files (row-group optimization enabled)...")
                     if not self.sort_collection(collection):
                         return False
                     did_stage3 = True
             else:
-                logger.info(
-                    f"  Stage 3: Sorting {status['parquet_expected'] - status['sorted_count']} parquet files..."
-                )
+                logger.info(f"  Stage 3: Sorting {status['parquet_expected'] - status['sorted_count']} parquet files...")
                 if not self.sort_collection(collection):
                     return False
                 did_stage3 = True
@@ -3000,9 +2753,7 @@ class PipelineOrchestrator:
                 status = self.validator.validate_collection(collection)
                 logger.info(f"  ✓ Sorted: {status['sorted_count']}/{status['parquet_expected']}")
         else:
-            logger.info(
-                f"  ✓ Stage 3: Sorting complete ({status['sorted_count']}/{status['parquet_expected']})"
-            )
+            logger.info(f"  ✓ Stage 3: Sorting complete ({status['sorted_count']}/{status['parquet_expected']})")
 
         # Stage 4: Index
         # If we rewrote sorted parquet row groups, the rowgroup metadata must be rebuilt.
@@ -3016,18 +2767,14 @@ class PipelineOrchestrator:
             status["duckdb_index_exists"] = False
             status["duckdb_index_sorted"] = False
 
-        needs_index = (not bool(status["duckdb_index_exists"])) or (
-            not bool(status["duckdb_index_sorted"])
-        )
+        needs_index = (not bool(status["duckdb_index_exists"])) or (not bool(status["duckdb_index_sorted"]))
         freshness_detail = ""
         if rewrite_sorted and (not needs_index) and (not force_reindex):
             # In rewrite mode, avoid rebuilding indexes on reruns when no parquet
             # shards actually changed. Use the index DB's fingerprints to decide.
             parquet_dir = self._get_collection_parquet_dir(collection)
             duckdb_path = (self.config.duckdb_collection_root / f"{collection}.duckdb").resolve()
-            up_to_date, detail = self._duckdb_fingerprints_up_to_date(
-                db_path=duckdb_path, parquet_root=parquet_dir
-            )
+            up_to_date, detail = self._duckdb_fingerprints_up_to_date(db_path=duckdb_path, parquet_root=parquet_dir)
             freshness_detail = detail
             if not up_to_date:
                 needs_index = True
@@ -3040,9 +2787,7 @@ class PipelineOrchestrator:
             if not self.build_index_for_collection(collection):
                 return False
             status = self.validator.validate_collection(collection)
-            logger.info(
-                f"  ✓ Index built and verified: exists={status['duckdb_index_exists']}, sorted={status['duckdb_index_sorted']}"
-            )
+            logger.info(f"  ✓ Index built and verified: exists={status['duckdb_index_exists']}, sorted={status['duckdb_index_sorted']}")
         else:
             if rewrite_sorted and freshness_detail:
                 logger.info(f"  ✓ Stage 4: Index up-to-date; skipping ({freshness_detail})")
@@ -3056,42 +2801,32 @@ class PipelineOrchestrator:
             if rewrite_sorted and (not force_reindex):
                 parquet_dir = self._get_collection_parquet_dir(collection)
                 out_db = self._domain_rowgroup_index_path(collection)
-                up_to_date, detail = self._duckdb_fingerprints_up_to_date(
-                    db_path=out_db, parquet_root=parquet_dir
-                )
+                up_to_date, detail = self._duckdb_fingerprints_up_to_date(db_path=out_db, parquet_root=parquet_dir)
                 rg_detail = detail
                 if up_to_date:
                     skip_rg = True
 
             if skip_rg:
-                logger.info(
-                    f"  ✓ Stage 5: Domain rowgroup slice index up-to-date; skipping ({rg_detail})"
-                )
+                logger.info(f"  ✓ Stage 5: Domain rowgroup slice index up-to-date; skipping ({rg_detail})")
             else:
-                logger.info(
-                    "  Stage 5: Building domain rowgroup slice index (cc_domain_rowgroups)..."
-                )
+                logger.info("  Stage 5: Building domain rowgroup slice index (cc_domain_rowgroups)...")
                 if not self.build_domain_rowgroup_index_for_collection(collection):
                     return False
                 logger.info("  ✓ Stage 5: Domain rowgroup slice index built")
-
+        
         # Final re-validation gate: only claim completion if validator agrees.
         status = self.validator.validate_collection(collection)
-        if status.get("complete"):
+        if status.get('complete'):
             logger.info(f"  ✓ {collection} processing complete")
             # Cleanup after the collection is truly complete (index exists + sorted).
             # This is where optional source-archive cleanup can safely happen.
-            if getattr(self.config, "cleanup_extraneous", False) or getattr(
-                self.config, "cleanup_source_archives", False
-            ):
+            if getattr(self.config, "cleanup_extraneous", False) or getattr(self.config, "cleanup_source_archives", False):
                 self.cleanup_collection_extraneous(collection)
             return True
 
         # Recompute after final validation so the message reflects current needs.
         # (Stage 2 may have run and changed parquet_count.)
-        sources_suffix_final = (
-            " (optional)" if status["parquet_count"] >= status["parquet_expected"] else ""
-        )
+        sources_suffix_final = " (optional)" if status['parquet_count'] >= status['parquet_expected'] else ""
         logger.warning(
             f"  ⚠️  {collection} finished stages but is still incomplete: "
             f"sources={status['tar_gz_count']}/{status['tar_gz_expected']}{sources_suffix_final} "
@@ -3100,7 +2835,7 @@ class PipelineOrchestrator:
             f"indexed={status['duckdb_index_exists']} (sorted={status['duckdb_index_sorted']})"
         )
         return False
-
+    
     def build_meta_indexes(self, *, year: Optional[str] = None) -> bool:
         """Build year-level and master meta-indexes.
 
@@ -3115,59 +2850,54 @@ class PipelineOrchestrator:
             if not year_index_script.exists():
                 logger.error(f"Year index builder not found: {year_index_script}")
                 return False
-
+            
             cmd = [
                 sys.executable,
                 str(year_index_script),
-                "--collection-dir",
-                str(self.config.duckdb_collection_root),
-                "--output-dir",
-                str(self.config.duckdb_year_root),
+                "--collection-dir", str(self.config.duckdb_collection_root),
+                "--output-dir", str(self.config.duckdb_year_root),
             ]
 
             if year:
                 cmd += ["--year", str(year)]
-
+            
             logger.info(f"Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             logger.info(result.stdout)
             logger.info("✓ Year-level indexes built")
-
+            
             # Step 2: Build master index
             logger.info("\nStep 2: Building master meta-index...")
             master_index_script = Path(__file__).parent / "build_master_index.py"
             if not master_index_script.exists():
                 logger.error(f"Master index builder not found: {master_index_script}")
                 return False
-
+            
             cmd = [
                 sys.executable,
                 str(master_index_script),
-                "--year-dir",
-                str(self.config.duckdb_year_root),
-                "--output",
-                str(self.config.duckdb_master_root / "cc_master_index.duckdb"),
+                "--year-dir", str(self.config.duckdb_year_root),
+                "--output", str(self.config.duckdb_master_root / "cc_master_index.duckdb"),
             ]
-
+            
             logger.info(f"Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             logger.info(result.stdout)
             logger.info("✓ Master index built")
-
+            
             # Print final statistics
             logger.info("\nFinal Index Statistics:")
             cmd = [
                 sys.executable,
                 str(master_index_script),
                 "--stats",
-                "--output",
-                str(self.config.duckdb_master_root / "cc_master_index.duckdb"),
+                "--output", str(self.config.duckdb_master_root / "cc_master_index.duckdb"),
             ]
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             logger.info(result.stdout)
-
+            
             return True
-
+            
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to build meta-indexes: {e}")
             if e.stdout:
@@ -3175,7 +2905,7 @@ class PipelineOrchestrator:
             if e.stderr:
                 logger.error(f"stderr: {e.stderr}")
             return False
-
+    
     def run_pipeline(self, resume: bool = True):
         """Run the complete pipeline"""
         logger.info("=" * 80)
@@ -3184,28 +2914,26 @@ class PipelineOrchestrator:
 
         # Per-run bookkeeping
         self._domain_year_index_updated_years.clear()
-
+        
         # Scan all collections
         self.scan_all_collections()
-
+        
         # Show overall status
-        complete = sum(1 for s in self.collection_status.values() if s.get("complete", False))
+        complete = sum(1 for s in self.collection_status.values() if s.get('complete', False))
         total = len(self.collections)
         logger.info(f"\nOverall Status: {complete}/{total} collections complete")
-
+        
         # Group collections by status
-        incomplete = [c for c, s in self.collection_status.items() if not s.get("complete", False)]
+        incomplete = [c for c, s in self.collection_status.items() if not s.get('complete', False)]
 
         rewrite_sorted = bool(getattr(self.config, "rewrite_sorted_parquet", False))
-
+        
         if not incomplete and not self.force_reindex and not rewrite_sorted:
             logger.info("\n✓ All collections are complete!")
 
             # Even if no work is needed, we may still want to reclaim disk by
             # sweeping completed collections for cleanup items.
-            if getattr(self.config, "cleanup_extraneous", False) or getattr(
-                self.config, "cleanup_source_archives", False
-            ):
+            if getattr(self.config, "cleanup_extraneous", False) or getattr(self.config, "cleanup_source_archives", False):
                 logger.info("\n[cleanup] Sweeping completed collections...")
                 for collection in self.collections:
                     try:
@@ -3237,16 +2965,12 @@ class PipelineOrchestrator:
                 # When forcing reindex, we still want to process collections even if complete.
                 targets = list(self.collections)
                 if self.force_reindex:
-                    logger.info(
-                        f"\nForce-reindex enabled: processing {len(targets)} collections for DuckDB rebuild"
-                    )
+                    logger.info(f"\nForce-reindex enabled: processing {len(targets)} collections for DuckDB rebuild")
                 else:
-                    logger.info(
-                        f"\nRewrite-sorted enabled: processing {len(targets)} collections for parquet rowgroup normalization"
-                    )
+                    logger.info(f"\nRewrite-sorted enabled: processing {len(targets)} collections for parquet rowgroup normalization")
             else:
                 logger.info(f"\nProcessing {len(targets)} incomplete collections...")
-
+        
         # Process collections
         failed_collections: List[str] = []
         continue_on_error = bool(rewrite_sorted)
@@ -3260,9 +2984,7 @@ class PipelineOrchestrator:
             if not ok:
                 failed_collections.append(collection)
                 if continue_on_error:
-                    logger.error(
-                        f"Failed to process {collection}; continuing (rewrite-sorted mode)"
-                    )
+                    logger.error(f"Failed to process {collection}; continuing (rewrite-sorted mode)")
                     continue
                 logger.error(f"Failed to process {collection}, stopping pipeline")
                 completed_target_loop = False
@@ -3280,9 +3002,7 @@ class PipelineOrchestrator:
                 logger.info("=" * 80)
                 for year in years_to_update:
                     if year in self._domain_year_index_updated_years:
-                        logger.info(
-                            f"✓ Stage 6: Domain-year index already handled for {year} this run; skipping"
-                        )
+                        logger.info(f"✓ Stage 6: Domain-year index already handled for {year} this run; skipping")
                         continue
                     logger.info(f"Stage 6: Updating domain-year index for {year}...")
                     if not self._update_domain_year_index(year):
@@ -3293,7 +3013,7 @@ class PipelineOrchestrator:
                     logger.info(f"✓ Stage 6: Domain-year index up-to-date for {year}")
         elif update_domain_year_index:
             logger.info("Skipping Stage 6 (domain-year index update) due to earlier pipeline stop")
-
+        
         # Final summary
         logger.info("\n" + "=" * 80)
         logger.info("Pipeline Summary")
@@ -3301,29 +3021,23 @@ class PipelineOrchestrator:
 
         if stage6_failed:
             logger.warning("Stage 6 (domain-year index update) did not complete")
-
-        complete = sum(1 for s in self.collection_status.values() if s.get("complete", False))
+        
+        complete = sum(1 for s in self.collection_status.values() if s.get('complete', False))
         logger.info(f"Complete: {complete}/{total} collections")
-
-        incomplete = [c for c, s in self.collection_status.items() if not s.get("complete", False)]
+        
+        incomplete = [c for c, s in self.collection_status.items() if not s.get('complete', False)]
         if incomplete:
             logger.info(f"\nIncomplete collections ({len(incomplete)}):")
             for c in incomplete:
                 s = self.collection_status[c]
-                pct = (
-                    (s["sorted_count"] / s["parquet_expected"] * 100)
-                    if s["parquet_expected"] > 0
-                    else 0
-                )
-                logger.info(
-                    f"  {c}: {pct:.1f}% sorted ({s['sorted_count']}/{s['parquet_expected']})"
-                )
+                pct = (s['sorted_count'] / s['parquet_expected'] * 100) if s['parquet_expected'] > 0 else 0
+                logger.info(f"  {c}: {pct:.1f}% sorted ({s['sorted_count']}/{s['parquet_expected']})")
 
         if failed_collections:
             logger.info(f"\nFailed collections ({len(failed_collections)}):")
             for c in failed_collections:
                 logger.info(f"  {c}")
-
+        
         # Build meta-indexes only after a full-year run is complete.
         # If the user filtered to a single collection (e.g. '2024-26'), skip.
         if (not incomplete) and (not stage6_failed):
@@ -3347,30 +3061,34 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Common Crawl Pipeline Orchestrator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
+        epilog=__doc__
     )
-
+    
     parser.add_argument(
         "--config",
         type=Path,
         default="pipeline_config.json",
-        help="Path to JSON configuration file (default: pipeline_config.json)",
+        help="Path to JSON configuration file (default: pipeline_config.json)"
     )
     parser.add_argument(
         "--ccindex-root",
         type=Path,
-        help="Root directory for downloaded .gz files (overrides config file)",
+        help="Root directory for downloaded .gz files (overrides config file)"
     )
     parser.add_argument(
-        "--parquet-root", type=Path, help="Root directory for parquet files (overrides config file)"
+        "--parquet-root",
+        type=Path,
+        help="Root directory for parquet files (overrides config file)"
     )
     parser.add_argument(
-        "--duckdb-root", type=Path, help="Root directory for DuckDB indexes (overrides config file)"
+        "--duckdb-root",
+        type=Path,
+        help="Root directory for DuckDB indexes (overrides config file)"
     )
     parser.add_argument(
         "--workers",
         type=int,
-        help=f"Maximum worker processes (overrides config file; default: {DEFAULT_MAX_WORKERS} when not set)",
+        help=f"Maximum worker processes (overrides config file; default: {DEFAULT_MAX_WORKERS} when not set)"
     )
     parser.add_argument(
         "--filter",
@@ -3397,9 +3115,13 @@ def main() -> int:
         "--resume",
         action="store_true",
         default=True,
-        help="Resume from where pipeline left off (default: True)",
+        help="Resume from where pipeline left off (default: True)"
     )
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose debug logging"
+    )
     parser.add_argument(
         "--heartbeat-seconds",
         type=int,
@@ -3578,13 +3300,13 @@ def main() -> int:
             "Default: min(8, --workers)."
         ),
     )
-
+    
     args = parser.parse_args()
-
+    
     # Set logging level based on verbose flag
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
-
+    
     # Load configuration from file with command-line overrides
     config = PipelineConfig.from_args(args)
 
@@ -3612,14 +3334,10 @@ def main() -> int:
     if getattr(args, "build_domain_rowgroup_index", None) is not None:
         config.build_domain_rowgroup_index = bool(getattr(args, "build_domain_rowgroup_index"))
     config.domain_rowgroup_index_root = getattr(args, "domain_rowgroup_index_root", None)
-    config.domain_rowgroup_index_batch_size = int(
-        getattr(args, "domain_rowgroup_index_batch_size", 1) or 1
-    )
+    config.domain_rowgroup_index_batch_size = int(getattr(args, "domain_rowgroup_index_batch_size", 1) or 1)
     if getattr(args, "domain_rowgroup_index_workers", None) is not None:
         try:
-            config.domain_rowgroup_index_workers = int(
-                getattr(args, "domain_rowgroup_index_workers")
-            )
+            config.domain_rowgroup_index_workers = int(getattr(args, "domain_rowgroup_index_workers"))
         except Exception:
             config.domain_rowgroup_index_workers = None
 
@@ -3641,7 +3359,7 @@ def main() -> int:
         config.collections_filter = _normalize_collections_filter(DEFAULT_COLLECTION_FILTER)
 
     # Note: cleanup is enabled by default; use --no-cleanup-* flags to disable.
-
+    
     # Log the active configuration
     logger.info("")
     logger.info("Active Configuration:")
@@ -3661,44 +3379,33 @@ def main() -> int:
     logger.info(f"  cleanup_source_archives:{config.cleanup_source_archives}")
     logger.info(f"  cleanup_only:           {bool(args.cleanup_only)}")
     logger.info(f"  force_reindex:          {config.force_reindex}")
-    logger.info(
-        f"  sort_workers:           {config.sort_workers if config.sort_workers else config.max_workers}"
-    )
+    logger.info(f"  sort_workers:           {config.sort_workers if config.sort_workers else config.max_workers}")
     logger.info(f"  sort_mem_per_worker_gb: {config.sort_memory_per_worker_gb}")
     if config.sort_temp_dir is None:
         logger.info("  sort_temp_dir:          (auto) <collection-parquet-dir>/.duckdb_sort_tmp")
     else:
         logger.info(f"  sort_temp_dir:          {config.sort_temp_dir}")
-    logger.info(
-        f"  autoheal_sort_failures: {bool(getattr(config, 'autoheal_sort_failures', True))}"
-    )
-    logger.info(
-        f"  sort_row_group_size:    {config.sort_row_group_size if config.sort_row_group_size is not None else 'auto'}"
-    )
+    logger.info(f"  autoheal_sort_failures: {bool(getattr(config, 'autoheal_sort_failures', True))}")
+    logger.info(f"  sort_row_group_size:    {config.sort_row_group_size if config.sort_row_group_size is not None else 'auto'}")
     logger.info(f"  rewrite_sorted_parquet: {config.rewrite_sorted_parquet}")
     if config.rewrite_sorted_parquet:
         logger.info(f"  rewrite_sorted_limit:   {config.rewrite_sorted_limit}")
     logger.info(f"  update_domain_year_index:{config.update_domain_year_index}")
     if config.update_domain_year_index:
         logger.info(
-            f"  domain_year_index_root:  {config.domain_year_index_root or Path('/storage/ccindex_duckdb/cc_domain_by_year_sorted')}"
-        )
-    logger.info(
-        f"  build_domain_rowgroup_index:{bool(getattr(config, 'build_domain_rowgroup_index', True))}"
-    )
-    if bool(getattr(config, "build_domain_rowgroup_index", True)):
+            f"  domain_year_index_root:  {config.domain_year_index_root or Path('/storage/ccindex_duckdb/cc_domain_by_year_sorted')}")
+    logger.info(f"  build_domain_rowgroup_index:{bool(getattr(config, 'build_domain_rowgroup_index', True))}")
+    if bool(getattr(config, 'build_domain_rowgroup_index', True)):
         logger.info(
-            f"  domain_rowgroup_index_root: {getattr(config, 'domain_rowgroup_index_root', None) or Path('/storage/ccindex_duckdb/cc_domain_rowgroups_by_collection')}"
-        )
+            f"  domain_rowgroup_index_root: {getattr(config, 'domain_rowgroup_index_root', None) or Path('/storage/ccindex_duckdb/cc_domain_rowgroups_by_collection')}")
         logger.info(
-            f"  domain_rowgroup_index_batch_size: {int(getattr(config, 'domain_rowgroup_index_batch_size', 1) or 1)}"
-        )
-        eff_rg_workers = getattr(config, "domain_rowgroup_index_workers", None)
+            f"  domain_rowgroup_index_batch_size: {int(getattr(config, 'domain_rowgroup_index_batch_size', 1) or 1)}")
+        eff_rg_workers = getattr(config, 'domain_rowgroup_index_workers', None)
         if eff_rg_workers is None:
-            eff_rg_workers = min(8, int(getattr(config, "max_workers", 8) or 8))
+            eff_rg_workers = min(8, int(getattr(config, 'max_workers', 8) or 8))
         logger.info(f"  domain_rowgroup_index_workers: {int(eff_rg_workers)}")
     logger.info("")
-
+    
     orchestrator = PipelineOrchestrator(config)
 
     if args.cleanup_only:

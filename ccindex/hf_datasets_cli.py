@@ -41,9 +41,7 @@ def cmd_check(args: argparse.Namespace) -> int:
 
         if hf_datasets_available():
             print("✓ HuggingFace datasets integration is available")
-            print(
-                f"  Dataset: {os.environ.get('HF_DATASET_NAME', 'Publicus/common_crawl_pointers_by_collection')}"
-            )
+            print(f"  Dataset: {os.environ.get('HF_DATASET_NAME', 'Publicus/common_crawl_pointers_by_collection')}")
             print(f"  Revision: {os.environ.get('HF_DATASET_REVISION', 'main')}")
             return 0
         else:
@@ -150,16 +148,12 @@ def cmd_search(args: argparse.Namespace) -> int:
         urls = args.urls.split(",")
 
         # Determine parquet_root - use provided or default
-        parquet_root = (
-            Path(args.parquet_root) if args.parquet_root else Path("/storage/ccindex_parquet")
-        )
+        parquet_root = Path(args.parquet_root) if args.parquet_root else Path("/storage/ccindex_parquet")
 
         print(f"Searching for {len(urls)} URLs...")
         print(f"Collection: {args.collection or 'auto-detect'}")
         print(f"Parquet root: {parquet_root}")
-        print(
-            f"HuggingFace dataset: {os.environ.get('HF_DATASET_NAME', 'Publicus/common_crawl_pointers_by_collection')}"
-        )
+        print(f"HuggingFace dataset: {os.environ.get('HF_DATASET_NAME', 'Publicus/common_crawl_pointers_by_collection')}")
 
         results = resolve_urls_to_ccindex(
             urls=urls,
@@ -177,14 +171,10 @@ def cmd_search(args: argparse.Namespace) -> int:
 
             for rec in records[: args.limit]:
                 source = rec.get("source", "unknown")
-                print(
-                    f"  - [{source}] {rec.get('timestamp', 'N/A')} | {rec.get('url', 'N/A')[:80]}"
-                )
+                print(f"  - [{source}] {rec.get('timestamp', 'N/A')} | {rec.get('url', 'N/A')[:80]}")
                 if args.verbose:
                     print(f"    Collection: {rec.get('collection', 'N/A')}")
-                    print(
-                        f"    WARC: {rec.get('warc_filename', 'N/A')}:{rec.get('warc_offset', 'N/A')}"
-                    )
+                    print(f"    WARC: {rec.get('warc_filename', 'N/A')}:{rec.get('warc_offset', 'N/A')}")
                     print(f"    Status: {rec.get('status', 'N/A')}, MIME: {rec.get('mime', 'N/A')}")
 
             if len(records) > args.limit:
@@ -263,15 +253,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     # check command
-    check_parser = subparsers.add_parser(
-        "check", help="Check if HuggingFace integration is available"
-    )
+    check_parser = subparsers.add_parser("check", help="Check if HuggingFace integration is available")
     check_parser.set_defaults(func=cmd_check)
 
     # list command
-    list_parser = subparsers.add_parser(
-        "list", help="List available parquet files for a collection"
-    )
+    list_parser = subparsers.add_parser("list", help="List available parquet files for a collection")
     list_parser.add_argument("collection", type=str, help="Collection name (e.g., CC-MAIN-2024-10)")
     list_parser.set_defaults(func=cmd_list)
 
@@ -298,22 +284,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     schema_parser.set_defaults(func=cmd_schema)
 
     # search command
-    search_parser = subparsers.add_parser(
-        "search", help="Search for URLs using HuggingFace fallback"
-    )
-    search_parser.add_argument(
-        "--urls", type=str, required=True, help="Comma-separated list of URLs to search"
-    )
+    search_parser = subparsers.add_parser("search", help="Search for URLs using HuggingFace fallback")
+    search_parser.add_argument("--urls", type=str, required=True, help="Comma-separated list of URLs to search")
     search_parser.add_argument("--collection", type=str, help="Specific collection to search")
     search_parser.add_argument("--year", type=str, help="Year to search (e.g., 2024)")
     search_parser.add_argument("--parquet-root", type=str, help="Local parquet root directory")
-    search_parser.add_argument(
-        "--max-matches", type=int, default=400, help="Max matches per domain"
-    )
+    search_parser.add_argument("--max-matches", type=int, default=400, help="Max matches per domain")
     search_parser.add_argument("--per-url-limit", type=int, default=5, help="Max records per URL")
-    search_parser.add_argument(
-        "--limit", type=int, default=10, help="Max records to display per URL"
-    )
+    search_parser.add_argument("--limit", type=int, default=10, help="Max records to display per URL")
     search_parser.add_argument("--output", type=str, help="Output JSON file path")
     search_parser.add_argument("--verbose", action="store_true", help="Verbose output")
     search_parser.set_defaults(func=cmd_search)

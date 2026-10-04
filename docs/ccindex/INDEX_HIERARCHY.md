@@ -76,8 +76,8 @@ CREATE TABLE cc_domain_shards (
 import duckdb
 
 conn = duckdb.connect(
-    "/storage/ccindex_duckdb/cc_domain_by_collection/cc_pointers_CC-MAIN-2024-10.duckdb",
-    read_only=True,
+    '/storage/ccindex_duckdb/cc_domain_by_collection/cc_pointers_CC-MAIN-2024-10.duckdb',
+    read_only=True
 )
 
 # Find all entries for a domain
@@ -126,7 +126,8 @@ CREATE TABLE meta_info (
 import duckdb
 
 conn = duckdb.connect(
-    "/storage/ccindex_duckdb/cc_domain_by_year/cc_pointers_2024.duckdb", read_only=True
+    '/storage/ccindex_duckdb/cc_domain_by_year/cc_pointers_2024.duckdb',
+    read_only=True
 )
 
 # Get metadata for 2024
@@ -201,7 +202,10 @@ CREATE TABLE master_info (
 ```python
 import duckdb
 
-conn = duckdb.connect("/storage/ccindex_duckdb/cc_master_index.duckdb", read_only=True)
+conn = duckdb.connect(
+    '/storage/ccindex_duckdb/cc_master_index.duckdb',
+    read_only=True
+)
 
 # Get master statistics
 master = conn.execute("SELECT * FROM master_info").fetchone()
@@ -281,7 +285,7 @@ python build_master_index.py --stats
 
 ```python
 # If you know the collection
-conn = duckdb.connect("cc_domain_by_collection/cc_pointers_CC-MAIN-2024-10.duckdb", read_only=True)
+conn = duckdb.connect('cc_domain_by_collection/cc_pointers_CC-MAIN-2024-10.duckdb', read_only=True)
 results = conn.execute("SELECT * FROM cc_domain_shards WHERE host = 'example.com'").fetchall()
 ```
 
@@ -290,7 +294,7 @@ results = conn.execute("SELECT * FROM cc_domain_shards WHERE host = 'example.com
 
 ```python
 # Query all 2024 collections
-conn = duckdb.connect("cc_domain_by_year/cc_pointers_2024.duckdb", read_only=True)
+conn = duckdb.connect('cc_domain_by_year/cc_pointers_2024.duckdb', read_only=True)
 
 # Get list of collections to query
 collections = conn.execute("SELECT collection, db_path FROM collection_registry").fetchall()
@@ -298,9 +302,7 @@ collections = conn.execute("SELECT collection, db_path FROM collection_registry"
 # Query each collection (can be parallelized)
 for coll, db_path in collections:
     coll_conn = duckdb.connect(db_path, read_only=True)
-    results = coll_conn.execute(
-        "SELECT * FROM cc_domain_shards WHERE host = 'example.com'"
-    ).fetchall()
+    results = coll_conn.execute("SELECT * FROM cc_domain_shards WHERE host = 'example.com'").fetchall()
     # Process results...
     coll_conn.close()
 ```
@@ -310,7 +312,7 @@ for coll, db_path in collections:
 
 ```python
 # Analyze entire corpus
-conn = duckdb.connect("cc_master_index.duckdb", read_only=True)
+conn = duckdb.connect('cc_master_index.duckdb', read_only=True)
 
 # Find which years might contain data
 years = conn.execute("""

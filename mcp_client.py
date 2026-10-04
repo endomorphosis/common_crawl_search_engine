@@ -104,11 +104,7 @@ class CcindexMcpClient:
         resp = self._post_json(payload)
         if isinstance(resp, dict) and resp.get("error"):
             err = resp.get("error") or {}
-            raise McpJsonRpcError(
-                str(err.get("message") or "JSON-RPC error"),
-                code=err.get("code"),
-                data=err.get("data"),
-            )
+            raise McpJsonRpcError(str(err.get("message") or "JSON-RPC error"), code=err.get("code"), data=err.get("data"))
         if not isinstance(resp, dict) or "result" not in resp:
             raise McpJsonRpcError("unexpected response")
         return resp["result"]
@@ -124,11 +120,7 @@ class CcindexMcpClient:
         resp = self._post_json(payload)
         if isinstance(resp, dict) and resp.get("error"):
             err = resp.get("error") or {}
-            raise McpJsonRpcError(
-                str(err.get("message") or "JSON-RPC error"),
-                code=err.get("code"),
-                data=err.get("data"),
-            )
+            raise McpJsonRpcError(str(err.get("message") or "JSON-RPC error"), code=err.get("code"), data=err.get("data"))
         if not isinstance(resp, dict) or "result" not in resp:
             raise McpJsonRpcError("unexpected response")
         return resp["result"]
@@ -161,14 +153,7 @@ class CcindexMcpClient:
                 continue
             if r.get("error"):
                 err = r.get("error") or {}
-                out.append(
-                    {
-                        "ok": False,
-                        "error": err.get("message"),
-                        "code": err.get("code"),
-                        "data": err.get("data"),
-                    }
-                )
+                out.append({"ok": False, "error": err.get("message"), "code": err.get("code"), "data": err.get("data")})
                 continue
             out.append(r.get("result"))
         return out
@@ -189,9 +174,7 @@ class CcindexMcpClient:
         r = self.call_tool("cc_collinfo_list", {"prefer_cache": bool(prefer_cache)})
         return r if isinstance(r, dict) else {"ok": False, "error": "unexpected result"}
 
-    def collinfo_update(
-        self, *, url: str | None = None, timeout_s: float | None = None
-    ) -> Dict[str, Any]:
+    def collinfo_update(self, *, url: str | None = None, timeout_s: float | None = None) -> Dict[str, Any]:
         args: Dict[str, Any] = {}
         if url is not None:
             args["url"] = str(url)
@@ -209,10 +192,7 @@ class CcindexMcpClient:
         return r if isinstance(r, dict) else {"ok": False, "error": "unexpected result"}
 
     def delete_collection_indexes(self, collections: List[str]) -> Dict[str, Any]:
-        r = self.call_tool(
-            "orchestrator_delete_collection_indexes",
-            {"collections": [str(c) for c in (collections or [])]},
-        )
+        r = self.call_tool("orchestrator_delete_collection_indexes", {"collections": [str(c) for c in (collections or [])]})
         return r if isinstance(r, dict) else {"ok": False, "error": "unexpected result"}
 
     # Jobs
@@ -220,9 +200,7 @@ class CcindexMcpClient:
         r = self.call_tool("orchestrator_jobs_list", {"limit": int(limit)})
         return r if isinstance(r, dict) else {"ok": False, "error": "unexpected result"}
 
-    def job_status(
-        self, *, pid: int | None = None, log_path: str | None = None, lines: int = 200
-    ) -> Dict[str, Any]:
+    def job_status(self, *, pid: int | None = None, log_path: str | None = None, lines: int = 200) -> Dict[str, Any]:
         r = self.call_tool(
             "orchestrator_job_status",
             {

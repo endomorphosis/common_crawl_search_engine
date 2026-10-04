@@ -274,7 +274,10 @@ WHERE host_rev LIKE 'com,example,%'
 ### 4. Year/Collection Filtering
 ```python
 # Search only 2024 data
-results = search_domain_in_pointer_index(db_path="cc_pointers_2024.duckdb", domain="example.com")
+results = search_domain_in_pointer_index(
+    db_path="cc_pointers_2024.duckdb",
+    domain="example.com"
+)
 ```
 
 ## Fast Access Time Guarantees

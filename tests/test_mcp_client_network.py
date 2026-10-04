@@ -78,9 +78,7 @@ def dashboard_subprocess(tmp_path: Path) -> tuple[str, subprocess.Popen[str]]:
                 (tmp_path / "dashboard_stdout.log").write_text(out, encoding="utf-8")
 
 
-def test_python_mcp_client_can_list_tools(
-    dashboard_subprocess: tuple[str, subprocess.Popen[str]],
-) -> None:
+def test_python_mcp_client_can_list_tools(dashboard_subprocess: tuple[str, subprocess.Popen[str]]) -> None:
     base_url, _proc = dashboard_subprocess
 
     from common_crawl_search_engine.mcp_client import CcindexMcpClient
@@ -95,9 +93,7 @@ def test_python_mcp_client_can_list_tools(
     assert "cc_collinfo_list" in names
 
 
-def test_python_mcp_client_can_call_tool(
-    dashboard_subprocess: tuple[str, subprocess.Popen[str]],
-) -> None:
+def test_python_mcp_client_can_call_tool(dashboard_subprocess: tuple[str, subprocess.Popen[str]]) -> None:
     base_url, _proc = dashboard_subprocess
 
     from common_crawl_search_engine.mcp_client import CcindexMcpClient
@@ -107,9 +103,7 @@ def test_python_mcp_client_can_call_tool(
     assert isinstance(out, dict)
 
 
-def test_cli_can_call_remote_mcp_tools(
-    dashboard_subprocess: tuple[str, subprocess.Popen[str]],
-) -> None:
+def test_cli_can_call_remote_mcp_tools(dashboard_subprocess: tuple[str, subprocess.Popen[str]]) -> None:
     base_url, _proc = dashboard_subprocess
 
     # Exercise the new generic remote subcommands.
@@ -131,9 +125,7 @@ def test_cli_can_call_remote_mcp_tools(
     assert "tools" in obj
 
 
-def test_cli_index_settings_get_remote(
-    dashboard_subprocess: tuple[str, subprocess.Popen[str]],
-) -> None:
+def test_cli_index_settings_get_remote(dashboard_subprocess: tuple[str, subprocess.Popen[str]]) -> None:
     base_url, _proc = dashboard_subprocess
 
     raw = subprocess.check_output(

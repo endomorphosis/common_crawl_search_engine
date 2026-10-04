@@ -419,12 +419,8 @@ def convert_collection(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Bulk convert CC .gz to parquet")
-    parser.add_argument(
-        "--input-dir", type=Path, required=True, help="Input directory with .gz files"
-    )
-    parser.add_argument(
-        "--output-dir", type=Path, required=True, help="Output directory for parquet files"
-    )
+    parser.add_argument("--input-dir", type=Path, required=True, help="Input directory with .gz files")
+    parser.add_argument("--output-dir", type=Path, required=True, help="Output directory for parquet files")
     parser.add_argument("--workers", type=int, default=4, help="Number of parallel workers")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing parquet files")
     parser.add_argument(

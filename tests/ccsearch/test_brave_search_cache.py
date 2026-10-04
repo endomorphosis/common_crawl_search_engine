@@ -31,9 +31,7 @@ class _RequestsModule:
 
 
 @pytest.mark.parametrize("ttl_s", [3600])
-def test_brave_web_search_uses_disk_cache(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ttl_s: int
-):
+def test_brave_web_search_uses_disk_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ttl_s: int):
     # Point cache at temp file.
     cache_path = tmp_path / "brave_cache.json"
     monkeypatch.setenv("BRAVE_SEARCH_CACHE_PATH", str(cache_path))
@@ -75,9 +73,7 @@ def test_brave_web_search_cache_can_be_disabled(tmp_path: Path, monkeypatch: pyt
 
     monkeypatch.setenv("BRAVE_SEARCH_API_KEY", "test-token")
 
-    payload = {
-        "web": {"results": [{"title": "T", "url": "https://example.com", "description": "D"}]}
-    }
+    payload = {"web": {"results": [{"title": "T", "url": "https://example.com", "description": "D"}]}}
     fake_requests = _RequestsModule(payload)
     monkeypatch.setitem(sys.modules, "requests", fake_requests)
 

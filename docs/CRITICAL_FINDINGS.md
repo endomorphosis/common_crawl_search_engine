@@ -79,16 +79,16 @@ def check_parquet_converted(self, collection: str):
     locations = [
         self.parquet_dir / collection,  # /storage/ccindex_parquet/CC-MAIN-2024-18/
         self.parquet_dir / "2024" / collection,  # Year-organized
-        self.parquet_dir / collection.split("-")[2] / collection,  # Year subdir
+        self.parquet_dir / collection.split('-')[2] / collection,  # Year subdir
     ]
-
+    
     files = []
     for loc in locations:
         if loc.exists():
             files.extend(loc.glob("*.gz.parquet*"))
-
+    
     # Query CC API for actual expected count
-    expected = self._query_cc_collection_size(collection)
+    expected = self._query_cc_collection_size(collection)  
     return len(files), expected, location_found
 ```
 

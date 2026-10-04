@@ -122,18 +122,8 @@ def main() -> int:
         default=None,
         help="Where to write a JSON plan for watchdog/restarts (default: <db-dir>/build_plan.json)",
     )
-    ap.add_argument(
-        "--input-root",
-        required=True,
-        type=str,
-        help="Root folder containing CC shards (e.g. /storage/ccindex)",
-    )
-    ap.add_argument(
-        "--db-dir",
-        required=True,
-        type=str,
-        help="Directory to place cc_pointers_<collection>.duckdb outputs",
-    )
+    ap.add_argument("--input-root", required=True, type=str, help="Root folder containing CC shards (e.g. /storage/ccindex)")
+    ap.add_argument("--db-dir", required=True, type=str, help="Directory to place cc_pointers_<collection>.duckdb outputs")
     ap.add_argument("--parquet-out", type=str, default=None, help="Optional Parquet output root")
     ap.add_argument(
         "--parquet-action",
@@ -184,12 +174,7 @@ def main() -> int:
         help="When --parquet-out is set, only skip an already-ingested shard if its Parquet file exists (default: true)",
     )
 
-    ap.add_argument(
-        "--collections-regex",
-        type=str,
-        default=None,
-        help="Regex to select collections from --input-root",
-    )
+    ap.add_argument("--collections-regex", type=str, default=None, help="Regex to select collections from --input-root")
     ap.add_argument(
         "--collections",
         action="append",
@@ -198,9 +183,7 @@ def main() -> int:
     )
 
     ap.add_argument("--workers", type=int, default=4, help="Number of worker processes to spawn")
-    ap.add_argument(
-        "--threads-per-worker", type=int, default=2, help="DuckDB threads per worker process"
-    )
+    ap.add_argument("--threads-per-worker", type=int, default=2, help="DuckDB threads per worker process")
 
     ap.add_argument(
         "--cdx-shard-mod",
@@ -212,38 +195,17 @@ def main() -> int:
         ),
     )
 
-    ap.add_argument(
-        "--progress-dir", type=str, default=None, help="Progress snapshot dir (passed through)"
-    )
-    ap.add_argument(
-        "--progress-interval-seconds",
-        type=int,
-        default=30,
-        help="Snapshot interval (passed through)",
-    )
+    ap.add_argument("--progress-dir", type=str, default=None, help="Progress snapshot dir (passed through)")
+    ap.add_argument("--progress-interval-seconds", type=int, default=30, help="Snapshot interval (passed through)")
 
     ap.add_argument("--batch-rows", type=int, default=None, help="Batch rows (passed through)")
-    ap.add_argument(
-        "--max-files", type=int, default=None, help="Max files per worker (passed through)"
-    )
+    ap.add_argument("--max-files", type=int, default=None, help="Max files per worker (passed through)")
 
-    ap.add_argument(
-        "--pid-dir",
-        type=str,
-        default=None,
-        help="Where to write worker PID files (default: --db-dir)",
-    )
-    ap.add_argument(
-        "--log-dir",
-        type=str,
-        default=None,
-        help="Where to write worker log files (default: --db-dir)",
-    )
+    ap.add_argument("--pid-dir", type=str, default=None, help="Where to write worker PID files (default: --db-dir)")
+    ap.add_argument("--log-dir", type=str, default=None, help="Where to write worker log files (default: --db-dir)")
 
     ap.add_argument("--dry-run", action="store_true", default=False, help="Print commands and exit")
-    ap.add_argument(
-        "--force", action="store_true", default=False, help="Overwrite PID files even if they exist"
-    )
+    ap.add_argument("--force", action="store_true", default=False, help="Overwrite PID files even if they exist")
 
     args = ap.parse_args()
 
@@ -284,9 +246,7 @@ def main() -> int:
                 continue
             pid_file = pid_dir / f"build_worker_{i}.pid"
             log_file = log_dir / f"build_worker_{i}.log"
-            plans.append(
-                WorkerPlan(worker_index=i, collections=cols, pid_file=pid_file, log_file=log_file)
-            )
+            plans.append(WorkerPlan(worker_index=i, collections=cols, pid_file=pid_file, log_file=log_file))
     else:
         # When partitioning within a collection by (cdx_number % mod == rem), we must ensure
         # that *every* remainder sees *every* collection exactly once.
@@ -301,7 +261,7 @@ def main() -> int:
         for rem, idxs in enumerate(rem_to_worker_idxs):
             if not idxs:
                 raise SystemExit(
-                    f"--workers ({workers}) must be >= --cdx-shard-mod ({cdx_mod}) so every remainder 0..{cdx_mod - 1} is covered"
+                    f"--workers ({workers}) must be >= --cdx-shard-mod ({cdx_mod}) so every remainder 0..{cdx_mod-1} is covered"
                 )
 
         # Seed empty plans for all workers.
@@ -332,35 +292,23 @@ def main() -> int:
     if not build_script.exists():
         raise SystemExit(f"Missing build script: {build_script}")
 
-    plan_path = (
-        Path(args.plan_file).expanduser().resolve()
-        if args.plan_file
-        else (db_dir / "build_plan.json")
-    )
+    plan_path = Path(args.plan_file).expanduser().resolve() if args.plan_file else (db_dir / "build_plan.json")
 
     # Print plan
     print(f"Selected collections: {len(collections)}")
     print(f"Workers: {len(plans)}")
-    python_exe = (
-        _abspath_preserve_symlinks(Path(args.python))
-        if args.python
-        else _abspath_preserve_symlinks(Path(sys.executable))
-    )
+    python_exe = _abspath_preserve_symlinks(Path(args.python)) if args.python else _abspath_preserve_symlinks(Path(sys.executable))
 
     plan_payload: Dict[str, Any] = {
         "created_at_epoch": time.time(),
         "input_root": str(input_root),
         "db_dir": str(db_dir),
-        "parquet_out": str(Path(args.parquet_out).expanduser().resolve())
-        if args.parquet_out
-        else None,
+        "parquet_out": str(Path(args.parquet_out).expanduser().resolve()) if args.parquet_out else None,
         "collections_regex": args.collections_regex,
         "workers": int(workers),
         "threads_per_worker": int(args.threads_per_worker),
         "cdx_shard_mod": int(cdx_mod) if cdx_mod is not None else None,
-        "progress_dir": str(Path(args.progress_dir).expanduser().resolve())
-        if args.progress_dir
-        else None,
+        "progress_dir": str(Path(args.progress_dir).expanduser().resolve()) if args.progress_dir else None,
         "progress_interval_seconds": int(args.progress_interval_seconds),
         "batch_rows": int(args.batch_rows) if args.batch_rows is not None else None,
         "max_files": int(args.max_files) if args.max_files is not None else None,
@@ -373,9 +321,7 @@ def main() -> int:
         extra = ""
         if p.cdx_shard_mod is not None:
             extra = f"\tcdx_mod={p.cdx_shard_mod}\tcdx_rem={p.cdx_shard_rem}"
-        print(
-            f"  worker={p.worker_index}\tcollections={len(p.collections)}\tpid={p.pid_file}\tlog={p.log_file}{extra}"
-        )
+        print(f"  worker={p.worker_index}\tcollections={len(p.collections)}\tpid={p.pid_file}\tlog={p.log_file}{extra}")
 
     procs: List[Popen] = []
 
@@ -410,12 +356,7 @@ def main() -> int:
             cmd += ["--domain-range-index"]
 
         if p.cdx_shard_mod is not None:
-            cmd += [
-                "--cdx-shard-mod",
-                str(int(p.cdx_shard_mod)),
-                "--cdx-shard-rem",
-                str(int(p.cdx_shard_rem or 0)),
-            ]
+            cmd += ["--cdx-shard-mod", str(int(p.cdx_shard_mod)), "--cdx-shard-rem", str(int(p.cdx_shard_rem or 0))]
 
         if args.parquet_out:
             cmd += ["--parquet-out", str(Path(args.parquet_out).expanduser().resolve())]
@@ -424,11 +365,7 @@ def main() -> int:
             cmd += ["--parquet-action", str(args.parquet_action)]
 
             if args.resume_require_parquet is not None:
-                cmd += [
-                    "--resume-require-parquet"
-                    if bool(args.resume_require_parquet)
-                    else "--no-resume-require-parquet"
-                ]
+                cmd += ["--resume-require-parquet" if bool(args.resume_require_parquet) else "--no-resume-require-parquet"]
 
         if args.progress_dir:
             cmd += ["--progress-dir", str(Path(args.progress_dir).expanduser().resolve())]

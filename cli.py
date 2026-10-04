@@ -91,9 +91,7 @@ def _cmd_warc_cache(args: argparse.Namespace) -> int:
     p = api.ensure_full_warc_cached(
         warc_filename=str(args.warc_filename),
         prefix=str(args.prefix),
-        cache_dir=Path(args.full_warc_cache_dir).expanduser().resolve()
-        if args.full_warc_cache_dir
-        else None,
+        cache_dir=Path(args.full_warc_cache_dir).expanduser().resolve() if args.full_warc_cache_dir else None,
         timeout_s=float(args.timeout_s),
         max_full_bytes=int(args.full_warc_max_bytes),
         overwrite=bool(args.overwrite),
@@ -113,9 +111,7 @@ def _cmd_warc_fetch_record(args: argparse.Namespace) -> int:
         decode_gzip_text=bool(args.decode_gzip_text),
         max_preview_chars=int(args.max_preview_chars),
         cache_mode=str(args.cache_mode),
-        full_warc_cache_dir=Path(args.full_warc_cache_dir).expanduser().resolve()
-        if args.full_warc_cache_dir
-        else None,
+        full_warc_cache_dir=Path(args.full_warc_cache_dir).expanduser().resolve() if args.full_warc_cache_dir else None,
         full_warc_max_bytes=int(args.full_warc_max_bytes),
     )
 
@@ -171,9 +167,7 @@ def _cmd_index_settings_get(_args: argparse.Namespace) -> int:
     timeout_s = float(getattr(_args, "timeout_s", 30.0) or 30.0)
     if endpoint:
         c = _mcp_client_from_endpoint(endpoint, timeout_s=timeout_s)
-        sys.stdout.write(
-            json.dumps(c.get_orchestrator_settings(), ensure_ascii=False, indent=2) + "\n"
-        )
+        sys.stdout.write(json.dumps(c.get_orchestrator_settings(), ensure_ascii=False, indent=2) + "\n")
         return 0
 
     from common_crawl_search_engine.ccindex.orchestrator_manager import load_orchestrator_settings
@@ -225,10 +219,7 @@ def _cmd_index_settings_set(args: argparse.Namespace) -> int:
         sys.stdout.write(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
         return 0
 
-    from common_crawl_search_engine.ccindex.orchestrator_manager import (
-        load_orchestrator_settings,
-        save_orchestrator_settings,
-    )
+    from common_crawl_search_engine.ccindex.orchestrator_manager import load_orchestrator_settings, save_orchestrator_settings
 
     cur = load_orchestrator_settings()
     updates: dict[str, object] = {}
@@ -261,9 +252,7 @@ def _cmd_index_delete(args: argparse.Namespace) -> int:
     timeout_s = float(getattr(args, "timeout_s", 30.0) or 30.0)
     if endpoint:
         c = _mcp_client_from_endpoint(endpoint, timeout_s=timeout_s)
-        res = c.call_tool(
-            "orchestrator_delete_collection_index", {"collection": str(args.collection)}
-        )
+        res = c.call_tool("orchestrator_delete_collection_index", {"collection": str(args.collection)})
         sys.stdout.write(json.dumps(res, ensure_ascii=False, indent=2) + "\n")
         return 0
 
@@ -331,17 +320,11 @@ def _cmd_index_job_start(args: argparse.Namespace) -> int:
     if endpoint:
         c = _mcp_client_from_endpoint(endpoint, timeout_s=timeout_s)
         planned = c.call_tool("orchestrator_job_plan", payload)
-        job = c.call_tool(
-            "orchestrator_job_start",
-            {"planned": planned, "label": str(args.label or "orchestrator")},
-        )
+        job = c.call_tool("orchestrator_job_start", {"planned": planned, "label": str(args.label or "orchestrator")})
         sys.stdout.write(json.dumps(job, ensure_ascii=False) + "\n")
         return 0
 
-    from common_crawl_search_engine.ccindex.orchestrator_manager import (
-        plan_orchestrator_command,
-        start_orchestrator_job,
-    )
+    from common_crawl_search_engine.ccindex.orchestrator_manager import plan_orchestrator_command, start_orchestrator_job
 
     planned = plan_orchestrator_command(
         mode=str(args.mode),
@@ -356,10 +339,7 @@ def _cmd_index_job_start(args: argparse.Namespace) -> int:
         sort_temp_dir=args.sort_temp_dir,
     )
     job = start_orchestrator_job(planned=planned, label=str(args.label or "orchestrator"))
-    sys.stdout.write(
-        json.dumps({"pid": job.pid, "log_path": job.log_path, "cmd": job.cmd}, ensure_ascii=False)
-        + "\n"
-    )
+    sys.stdout.write(json.dumps({"pid": job.pid, "log_path": job.log_path, "cmd": job.cmd}, ensure_ascii=False) + "\n")
     return 0
 
 
@@ -368,9 +348,7 @@ def _cmd_index_job_stop(args: argparse.Namespace) -> int:
     timeout_s = float(getattr(args, "timeout_s", 30.0) or 30.0)
     if endpoint:
         c = _mcp_client_from_endpoint(endpoint, timeout_s=timeout_s)
-        res = c.call_tool(
-            "orchestrator_job_stop", {"pid": int(args.pid), "sig": str(args.sig or "TERM")}
-        )
+        res = c.call_tool("orchestrator_job_stop", {"pid": int(args.pid), "sig": str(args.sig or "TERM")})
         sys.stdout.write(json.dumps(res, ensure_ascii=False) + "\n")
         return 0
 
@@ -386,10 +364,7 @@ def _cmd_index_job_tail(args: argparse.Namespace) -> int:
     timeout_s = float(getattr(args, "timeout_s", 30.0) or 30.0)
     if endpoint:
         c = _mcp_client_from_endpoint(endpoint, timeout_s=timeout_s)
-        res = c.call_tool(
-            "orchestrator_job_tail",
-            {"log_path": str(args.log_path), "lines": int(args.lines or 200)},
-        )
+        res = c.call_tool("orchestrator_job_tail", {"log_path": str(args.log_path), "lines": int(args.lines or 200)})
         sys.stdout.write(str(res.get("tail") if isinstance(res, dict) else res) + "\n")
         return 0
 
@@ -476,14 +451,7 @@ def _cmd_index_jobs_list(args: argparse.Namespace) -> int:
 
     from common_crawl_search_engine.ccindex.orchestrator_manager import list_jobs
 
-    sys.stdout.write(
-        json.dumps(
-            {"ok": True, "jobs": list_jobs(limit=int(args.limit or 50))},
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n"
-    )
+    sys.stdout.write(json.dumps({"ok": True, "jobs": list_jobs(limit=int(args.limit or 50))}, ensure_ascii=False, indent=2) + "\n")
     return 0
 
 
@@ -540,9 +508,7 @@ def _cmd_mcp_call(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(
-        prog="ccindex", description="Common Crawl index CLI (unified entrypoint)"
-    )
+    ap = argparse.ArgumentParser(prog="ccindex", description="Common Crawl index CLI (unified entrypoint)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     # ---- search ----
@@ -562,9 +528,7 @@ def main(argv: list[str] | None = None) -> int:
     src.add_argument("--year-db", type=Path, help="Year meta-index DuckDB")
     src.add_argument("--collection-db", type=Path, help="Single collection DuckDB")
 
-    ap_meta.add_argument(
-        "--year", type=str, default=None, help="Restrict to a year (only used with --master-db)"
-    )
+    ap_meta.add_argument("--year", type=str, default=None, help="Restrict to a year (only used with --master-db)")
     ap_meta.add_argument(
         "--parquet-root",
         type=Path,
@@ -600,22 +564,14 @@ def main(argv: list[str] | None = None) -> int:
     ap_meta.add_argument("--stats", action="store_true", help="Emit stats to stderr")
     ap_meta.set_defaults(func=_cmd_search_meta)
 
-    ap_domain = sub_search.add_parser(
-        "domain", help="Delegate to search_cc_domain (legacy behavior)"
-    )
+    ap_domain = sub_search.add_parser("domain", help="Delegate to search_cc_domain (legacy behavior)")
     ap_domain.add_argument("argv", nargs=argparse.REMAINDER, help="Arguments for search_cc_domain")
-    ap_domain.set_defaults(
-        func=lambda a: _delegate("common_crawl_search_engine.ccindex.search_cc_domain", a.argv)
-    )
+    ap_domain.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.search_cc_domain", a.argv))
 
-    ap_parallel = sub_search.add_parser(
-        "parallel", help="Delegate to search_parallel_duckdb_indexes"
-    )
+    ap_parallel = sub_search.add_parser("parallel", help="Delegate to search_parallel_duckdb_indexes")
     ap_parallel.add_argument("argv", nargs=argparse.REMAINDER)
     ap_parallel.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.search_parallel_duckdb_indexes", a.argv
-        )
+        func=lambda a: _delegate("common_crawl_search_engine.ccindex.search_parallel_duckdb_indexes", a.argv)
     )
 
     # ---- build ----
@@ -625,47 +581,31 @@ def main(argv: list[str] | None = None) -> int:
     ap_build_pointer = sub_build.add_parser("pointer", help="Build pointer DuckDB index")
     ap_build_pointer.add_argument("argv", nargs=argparse.REMAINDER)
     ap_build_pointer.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.build_cc_pointer_duckdb", a.argv
-        )
+        func=lambda a: _delegate("common_crawl_search_engine.ccindex.build_cc_pointer_duckdb", a.argv)
     )
 
     ap_build_parallel = sub_build.add_parser("parallel", help="Build parallel DuckDB indexes")
     ap_build_parallel.add_argument("argv", nargs=argparse.REMAINDER)
     ap_build_parallel.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.build_parallel_duckdb_indexes", a.argv
-        )
+        func=lambda a: _delegate("common_crawl_search_engine.ccindex.build_parallel_duckdb_indexes", a.argv)
     )
 
     ap_build_meta = sub_build.add_parser("meta", help="Build year meta-indexes")
     ap_build_meta.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_build_meta.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.build_year_meta_indexes", a.argv
-        )
-    )
+    ap_build_meta.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.build_year_meta_indexes", a.argv))
 
     # ---- orchestration ----
     ap_orch = sub.add_parser("orchestrate", help="Delegate to pipeline orchestrator")
     ap_orch.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_orch.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.cc_pipeline_orchestrator", a.argv
-        )
-    )
+    ap_orch.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.cc_pipeline_orchestrator", a.argv))
 
     ap_watch = sub.add_parser("watch", help="Delegate to pipeline watch")
     ap_watch.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_watch.set_defaults(
-        func=lambda a: _delegate("common_crawl_search_engine.ccindex.cc_pipeline_watch", a.argv)
-    )
+    ap_watch.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.cc_pipeline_watch", a.argv))
 
     ap_hud = sub.add_parser("hud", help="Delegate to pipeline HUD")
     ap_hud.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_hud.set_defaults(
-        func=lambda a: _delegate("common_crawl_search_engine.ccindex.cc_pipeline_hud", a.argv)
-    )
+    ap_hud.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.cc_pipeline_hud", a.argv))
 
     # ---- validate ----
     ap_validate = sub.add_parser("validate", help="Validation tools")
@@ -674,23 +614,15 @@ def main(argv: list[str] | None = None) -> int:
     ap_val_coll = sub_val.add_parser("collection", help="Validate collection completeness")
     ap_val_coll.add_argument("argv", nargs=argparse.REMAINDER)
     ap_val_coll.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.validate_collection_completeness", a.argv
-        )
+        func=lambda a: _delegate("common_crawl_search_engine.ccindex.validate_collection_completeness", a.argv)
     )
 
     ap_val_pq = sub_val.add_parser("parquet", help="Validate and sort Parquet")
     ap_val_pq.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_val_pq.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.validate_and_sort_parquet", a.argv
-        )
-    )
+    ap_val_pq.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.validate_and_sort_parquet", a.argv))
 
     # ---- index (orchestrator management) ----
-    ap_index = sub.add_parser(
-        "index", help="Manage ccindex pipeline/indexes (orchestrator wrapper)"
-    )
+    ap_index = sub.add_parser("index", help="Manage ccindex pipeline/indexes (orchestrator wrapper)")
     ap_index.add_argument(
         "--endpoint",
         type=str,
@@ -735,11 +667,7 @@ def main(argv: list[str] | None = None) -> int:
     ap_idel.set_defaults(func=_cmd_index_delete)
 
     ap_plan = sub_index.add_parser("job-plan", help="Plan an orchestrator job command")
-    ap_plan.add_argument(
-        "--mode",
-        required=True,
-        choices=["pipeline", "download_only", "cleanup_only", "build_meta_indexes"],
-    )
+    ap_plan.add_argument("--mode", required=True, choices=["pipeline", "download_only", "cleanup_only", "build_meta_indexes"])
     ap_plan.add_argument("--filter", type=str, default=None)
     ap_plan.add_argument("--workers", type=int, default=None)
     ap_plan.add_argument("--force-reindex", action="store_true", default=None)
@@ -752,11 +680,7 @@ def main(argv: list[str] | None = None) -> int:
     ap_plan.set_defaults(func=_cmd_index_job_plan)
 
     ap_start = sub_index.add_parser("job-start", help="Start an orchestrator job in background")
-    ap_start.add_argument(
-        "--mode",
-        required=True,
-        choices=["pipeline", "download_only", "cleanup_only", "build_meta_indexes"],
-    )
+    ap_start.add_argument("--mode", required=True, choices=["pipeline", "download_only", "cleanup_only", "build_meta_indexes"])
     ap_start.add_argument("--filter", type=str, default=None)
     ap_start.add_argument("--workers", type=int, default=None)
     ap_start.add_argument("--force-reindex", action="store_true", default=None)
@@ -796,9 +720,7 @@ def main(argv: list[str] | None = None) -> int:
     ap_bstat.add_argument("--parallelism", type=int, default=8)
     ap_bstat.set_defaults(func=_cmd_index_bulk_status)
 
-    ap_bdel = sub_index.add_parser(
-        "bulk-delete", help="Delete DuckDB index artifacts for multiple collections"
-    )
+    ap_bdel = sub_index.add_parser("bulk-delete", help="Delete DuckDB index artifacts for multiple collections")
     ap_bdel.add_argument("--collections", nargs="+", required=True)
     ap_bdel.set_defaults(func=_cmd_index_bulk_delete)
 
@@ -832,7 +754,7 @@ def main(argv: list[str] | None = None) -> int:
         "--args-json",
         type=str,
         default=None,
-        help='JSON object string passed as tool arguments (e.g. \'{"collection":"CC-MAIN-2024-10"}\').',
+        help="JSON object string passed as tool arguments (e.g. '{\"collection\":\"CC-MAIN-2024-10\"}').",
     )
     ap_mcp_call.set_defaults(func=_cmd_mcp_call)
 
@@ -862,9 +784,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Start the dashboard in the background and return immediately",
     )
 
-    def _spawn_dashboard(
-        *, host: str, port: int, master_db: Path, reload: bool, workers: int
-    ) -> int:
+    def _spawn_dashboard(*, host: str, port: int, master_db: Path, reload: bool, workers: int) -> int:
         logs_dir = Path("logs")
         state_dir = Path("state")
         logs_dir.mkdir(parents=True, exist_ok=True)
@@ -987,21 +907,13 @@ def main(argv: list[str] | None = None) -> int:
                 laddr = getattr(conn, "laddr", None)
                 if not laddr:
                     continue
-                lhost = getattr(laddr, "ip", None) or (
-                    laddr[0] if isinstance(laddr, tuple) else None
-                )
-                lport = getattr(laddr, "port", None) or (
-                    laddr[1] if isinstance(laddr, tuple) else None
-                )
+                lhost = getattr(laddr, "ip", None) or (laddr[0] if isinstance(laddr, tuple) else None)
+                lport = getattr(laddr, "port", None) or (laddr[1] if isinstance(laddr, tuple) else None)
                 if int(lport or -1) != target_port:
                     continue
 
                 # If host is 0.0.0.0, we accept any listener on that port.
-                if target_host not in ("0.0.0.0", "::") and lhost not in (
-                    target_host,
-                    "0.0.0.0",
-                    "::",
-                ):
+                if target_host not in ("0.0.0.0", "::") and lhost not in (target_host, "0.0.0.0", "::"):
                     continue
 
                 pid = getattr(conn, "pid", None)
@@ -1071,9 +983,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Run automated browser analysis of the dashboard (Playwright) and write screenshots/logs to artifacts/",
     )
     ap_mcp_analyze.add_argument("--domain", default="iana.org")
-    ap_mcp_analyze.add_argument(
-        "--parquet-root", type=Path, default=Path("/storage/ccindex_parquet")
-    )
+    ap_mcp_analyze.add_argument("--parquet-root", type=Path, default=Path("/storage/ccindex_parquet"))
     ap_mcp_analyze.add_argument(
         "--master-db",
         type=Path,
@@ -1145,12 +1055,8 @@ def main(argv: list[str] | None = None) -> int:
     sub_warc = ap_warc.add_subparsers(dest="warc_cmd", required=True)
 
     ap_warc_cache = sub_warc.add_parser("cache", help="Download/cache a full *.warc.gz locally")
-    ap_warc_cache.add_argument(
-        "--warc-filename", required=True, help="Common Crawl WARC filename (path within CC)"
-    )
-    ap_warc_cache.add_argument(
-        "--prefix", default="https://data.commoncrawl.org/", help="WARC base URL prefix"
-    )
+    ap_warc_cache.add_argument("--warc-filename", required=True, help="Common Crawl WARC filename (path within CC)")
+    ap_warc_cache.add_argument("--prefix", default="https://data.commoncrawl.org/", help="WARC base URL prefix")
     ap_warc_cache.add_argument(
         "--full-warc-cache-dir",
         default=None,
@@ -1168,24 +1074,14 @@ def main(argv: list[str] | None = None) -> int:
     ap_warc_fetch.add_argument("--prefix", default="https://data.commoncrawl.org/")
     ap_warc_fetch.add_argument("--timeout-s", type=float, default=30.0)
     ap_warc_fetch.add_argument("--max-bytes", type=int, default=2_000_000)
-    ap_warc_fetch.add_argument(
-        "--decode-gzip-text", dest="decode_gzip_text", action="store_true", default=True
-    )
-    ap_warc_fetch.add_argument(
-        "--no-decode-gzip-text", dest="decode_gzip_text", action="store_false"
-    )
+    ap_warc_fetch.add_argument("--decode-gzip-text", dest="decode_gzip_text", action="store_true", default=True)
+    ap_warc_fetch.add_argument("--no-decode-gzip-text", dest="decode_gzip_text", action="store_false")
     ap_warc_fetch.add_argument("--max-preview-chars", type=int, default=80_000)
     ap_warc_fetch.add_argument("--cache-mode", choices=["range", "auto", "full"], default="range")
     ap_warc_fetch.add_argument("--full-warc-cache-dir", default=None)
     ap_warc_fetch.add_argument("--full-warc-max-bytes", type=int, default=5_000_000_000)
     ap_warc_fetch.add_argument("--include-raw-base64", action="store_true", default=False)
-    ap_warc_fetch.add_argument(
-        "--http",
-        dest="http",
-        action="store_true",
-        default=True,
-        help="Parse HTTP payload from WARC",
-    )
+    ap_warc_fetch.add_argument("--http", dest="http", action="store_true", default=True, help="Parse HTTP payload from WARC")
     ap_warc_fetch.add_argument("--no-http", dest="http", action="store_false")
     ap_warc_fetch.add_argument("--include-http-body-base64", action="store_true", default=False)
     ap_warc_fetch.set_defaults(func=_cmd_warc_fetch_record)
@@ -1199,49 +1095,29 @@ def main(argv: list[str] | None = None) -> int:
         help="Search CC index for all domains in a CSV, emit pointer JSONL (defaults uncapped; use --max-matches/--max-parquet-files/--per-parquet-limit to cap)",
     )
     ap_pointers.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_pointers.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.plan_pointers_from_csv", a.argv
-        )
-    )
+    ap_pointers.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_pointers_from_csv", a.argv))
 
     ap_pointers_jsonl = sub_plan.add_parser(
         "pointers-from-jsonl",
         help="Search CC index for all domains in a JSONL (e.g. state_agencies_all.jsonl), emit pointers.parquet (zstd)",
     )
     ap_pointers_jsonl.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_pointers_jsonl.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.plan_pointers_from_jsonl", a.argv
-        )
-    )
+    ap_pointers_jsonl.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_pointers_from_jsonl", a.argv))
 
-    ap_slices = sub_plan.add_parser(
-        "slices-from-pointers", help="Compile a canonical slice plan from pointer JSONL"
-    )
+    ap_slices = sub_plan.add_parser("slices-from-pointers", help="Compile a canonical slice plan from pointer JSONL")
     ap_slices.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_slices.set_defaults(
-        func=lambda a: _delegate(
-            "common_crawl_search_engine.ccindex.plan_slices_from_pointers", a.argv
-        )
-    )
+    ap_slices.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.plan_slices_from_pointers", a.argv))
 
-    ap_fetch = sub_plan.add_parser(
-        "fetch-slices", help="Fetch all slices in a slice plan in parallel (warms range cache)"
-    )
+    ap_fetch = sub_plan.add_parser("fetch-slices", help="Fetch all slices in a slice plan in parallel (warms range cache)")
     ap_fetch.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_fetch.set_defaults(
-        func=lambda a: _delegate("common_crawl_search_engine.ccindex.fetch_slice_plan", a.argv)
-    )
+    ap_fetch.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.fetch_slice_plan", a.argv))
 
     ap_extract = sub_plan.add_parser(
         "extract-from-cache",
         help="Reconstruct WARC members from cached slices and parse HTTP payloads into JSONL",
     )
     ap_extract.add_argument("argv", nargs=argparse.REMAINDER)
-    ap_extract.set_defaults(
-        func=lambda a: _delegate("common_crawl_search_engine.ccindex.extract_from_cache", a.argv)
-    )
+    ap_extract.set_defaults(func=lambda a: _delegate("common_crawl_search_engine.ccindex.extract_from_cache", a.argv))
 
     ns = ap.parse_args(argv)
     return int(ns.func(ns))

@@ -136,39 +136,23 @@ def sort_one(
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(
-        description="Rewrite CC Parquet shards sorted by (host_rev, url, ts) safely in-place."
-    )
+    ap = argparse.ArgumentParser(description="Rewrite CC Parquet shards sorted by (host_rev, url, ts) safely in-place.")
     ap.add_argument(
         "--parquet-root",
         required=True,
         type=str,
         help="Root like /storage/ccindex_parquet/cc_pointers_by_collection",
     )
-    ap.add_argument(
-        "--collections",
-        action="append",
-        default=None,
-        help="Repeatable: only process these collections",
-    )
-    ap.add_argument(
-        "--collections-regex",
-        type=str,
-        default=None,
-        help="Regex to select collections (when enumerating)",
-    )
-    ap.add_argument(
-        "--max-files", type=int, default=None, help="Stop after sorting this many files"
-    )
+    ap.add_argument("--collections", action="append", default=None, help="Repeatable: only process these collections")
+    ap.add_argument("--collections-regex", type=str, default=None, help="Regex to select collections (when enumerating)")
+    ap.add_argument("--max-files", type=int, default=None, help="Stop after sorting this many files")
     ap.add_argument(
         "--min-free-gb",
         type=float,
         default=250.0,
         help="Skip a file if free space is less than (min-free + file_size)",
     )
-    ap.add_argument(
-        "--duckdb-tmp", type=str, default=None, help="Optional DuckDB temp spill directory"
-    )
+    ap.add_argument("--duckdb-tmp", type=str, default=None, help="Optional DuckDB temp spill directory")
     ap.add_argument("--threads", type=int, default=2, help="DuckDB threads to use")
     ap.add_argument(
         "--row-group-size",
@@ -194,15 +178,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=True,
         help="When --zfs-dataset is set, refuse to sort if any snapshots exist on that dataset.",
     )
-    ap.add_argument(
-        "--force", action="store_true", default=False, help="Re-sort even if marker exists"
-    )
-    ap.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Print what would be done without writing",
-    )
+    ap.add_argument("--force", action="store_true", default=False, help="Re-sort even if marker exists")
+    ap.add_argument("--dry-run", action="store_true", default=False, help="Print what would be done without writing")
 
     args = ap.parse_args(argv)
 

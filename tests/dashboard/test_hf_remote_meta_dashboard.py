@@ -10,9 +10,7 @@ def test_search_domain_meta_tool_schema_includes_hf_remote_fields() -> None:
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(
-        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
-    )
+    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
 
     try:
         from fastapi.testclient import TestClient
@@ -34,9 +32,7 @@ def test_search_domain_meta_tool_schema_includes_hf_remote_fields() -> None:
     assert "hf_revision" in schema_props
 
 
-def test_search_domain_meta_tool_call_forwards_hf_remote_args(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_search_domain_meta_tool_call_forwards_hf_remote_args(monkeypatch: pytest.MonkeyPatch) -> None:
     """MCP search call should forward HF remote args into API search."""
 
     from common_crawl_search_engine import dashboard
@@ -56,13 +52,9 @@ def test_search_domain_meta_tool_call_forwards_hf_remote_args(
         captured["kwargs"] = kwargs
         return FakeResult()
 
-    monkeypatch.setattr(
-        dashboard.api, "search_domain_via_meta_indexes", fake_search_domain_via_meta_indexes
-    )
+    monkeypatch.setattr(dashboard.api, "search_domain_via_meta_indexes", fake_search_domain_via_meta_indexes)
 
-    app = dashboard.create_app(
-        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
-    )
+    app = dashboard.create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
 
     try:
         from fastapi.testclient import TestClient
@@ -110,9 +102,7 @@ def test_home_page_contains_hf_remote_controls_and_mode_label() -> None:
 
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(
-        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
-    )
+    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
 
     try:
         from fastapi.testclient import TestClient

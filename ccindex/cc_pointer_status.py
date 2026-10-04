@@ -132,9 +132,7 @@ def _read_shard_db(db_path: Path) -> ShardStatus:
         try:
             row_files = con.execute("SELECT count(*) FROM cc_ingested_files").fetchone()
             ing_files = (row_files[0] if row_files and row_files[0] is not None else 0) or 0
-            row_rows = con.execute(
-                "SELECT COALESCE(sum(rows), 0) FROM cc_ingested_files"
-            ).fetchone()
+            row_rows = con.execute("SELECT COALESCE(sum(rows), 0) FROM cc_ingested_files").fetchone()
             ing_rows = (row_rows[0] if row_rows and row_rows[0] is not None else 0) or 0
             row_latest = con.execute("SELECT max(ingested_at) FROM cc_ingested_files").fetchone()
             latest = row_latest[0] if row_latest and row_latest[0] is not None else None
@@ -189,9 +187,7 @@ def _iter_collections(input_root: Path) -> Iterable[Path]:
             yield entry
 
 
-def _count_expected_shards_by_year(
-    input_root: Path, collections_regex: Optional[str]
-) -> Dict[int, int]:
+def _count_expected_shards_by_year(input_root: Path, collections_regex: Optional[str]) -> Dict[int, int]:
     rx = re.compile(collections_regex) if collections_regex else None
 
     counts: Dict[int, int] = {}
@@ -218,9 +214,7 @@ def _count_expected_shards_by_year(
     return counts
 
 
-def _count_expected_shards_by_collection(
-    input_root: Path, collections_regex: Optional[str]
-) -> Dict[str, int]:
+def _count_expected_shards_by_collection(input_root: Path, collections_regex: Optional[str]) -> Dict[str, int]:
     rx = re.compile(collections_regex) if collections_regex else None
 
     counts: Dict[str, int] = {}
@@ -243,21 +237,9 @@ def _count_expected_shards_by_collection(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--db-dir", required=True, type=str, help="Directory containing cc_pointers_*.duckdb files"
-    )
-    ap.add_argument(
-        "--input-root",
-        type=str,
-        default=None,
-        help="Optional CC index root to compute expected shard counts",
-    )
-    ap.add_argument(
-        "--collections-regex",
-        type=str,
-        default=None,
-        help="Regex filter for collections when counting expected shards",
-    )
+    ap.add_argument("--db-dir", required=True, type=str, help="Directory containing cc_pointers_*.duckdb files")
+    ap.add_argument("--input-root", type=str, default=None, help="Optional CC index root to compute expected shard counts")
+    ap.add_argument("--collections-regex", type=str, default=None, help="Regex filter for collections when counting expected shards")
     args = ap.parse_args()
 
     db_dir = Path(args.db_dir).expanduser().resolve()
@@ -287,17 +269,13 @@ def main() -> int:
     if args.input_root:
         input_root = Path(args.input_root).expanduser().resolve()
         expected_by_year = _count_expected_shards_by_year(input_root, args.collections_regex)
-        expected_by_collection = _count_expected_shards_by_collection(
-            input_root, args.collections_regex
-        )
+        expected_by_collection = _count_expected_shards_by_collection(input_root, args.collections_regex)
         for st in statuses:
             base, mod, rem = _split_part_suffix(st.shard_key)
             if st.collection and mod is not None and rem is not None:
                 key = (st.collection, int(mod), int(rem))
                 if key not in expected_part_cache:
-                    expected_part_cache[key] = _count_expected_part_shards(
-                        input_root / st.collection, int(mod), int(rem)
-                    )
+                    expected_part_cache[key] = _count_expected_part_shards(input_root / st.collection, int(mod), int(rem))
                 st.expected_files = expected_part_cache.get(key)
             elif st.collection and st.collection in expected_by_collection:
                 st.expected_files = expected_by_collection[st.collection]
@@ -312,16 +290,7 @@ def main() -> int:
             print(f"Collections regex: {args.collections_regex}")
 
     print("")
-    header = [
-        "shard",
-        "year",
-        "db_size",
-        "ing_files",
-        "exp_files",
-        "pct",
-        "ing_rows",
-        "latest_ingested_at",
-    ]
+    header = ["shard", "year", "db_size", "ing_files", "exp_files", "pct", "ing_rows", "latest_ingested_at"]
     print("\t".join(header))
 
     total_db = 0
@@ -347,16 +316,7 @@ def main() -> int:
             exp_s = "-"
 
         if st.locked and not st.from_snapshot:
-            row = [
-                st.shard_key,
-                str(st.year) if st.year is not None else "-",
-                _fmt_bytes(st.db_bytes),
-                "LOCKED",
-                exp_s,
-                "-",
-                "-",
-                "-",
-            ]
+            row = [st.shard_key, str(st.year) if st.year is not None else "-", _fmt_bytes(st.db_bytes), "LOCKED", exp_s, "-", "-", "-"]
         else:
             ing_files_s = str(st.ingested_files)
             ing_rows_s = f"{st.ingested_rows:,}" if st.ingested_rows is not None else "-"
@@ -380,9 +340,7 @@ def main() -> int:
     print("")
     if total_exp_files > 0:
         total_pct = 100.0 * total_ing_files / total_exp_files
-        print(
-            f"TOTAL: db={_fmt_bytes(total_db)}, files={total_ing_files}/{total_exp_files} ({total_pct:.1f}%), rows={total_rows:,}"
-        )
+        print(f"TOTAL: db={_fmt_bytes(total_db)}, files={total_ing_files}/{total_exp_files} ({total_pct:.1f}%), rows={total_rows:,}")
     else:
         print(f"TOTAL: db={_fmt_bytes(total_db)}, files={total_ing_files}, rows={total_rows:,}")
 

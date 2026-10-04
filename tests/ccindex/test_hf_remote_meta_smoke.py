@@ -19,12 +19,8 @@ from common_crawl_search_engine.ccindex.hf_datasets_adapter import HFMetaIndexSQ
 )
 def test_hf_remote_meta_list_collections_smoke() -> None:
     reader = HFMetaIndexSQLReader(
-        index_dataset_name=os.environ.get(
-            "HF_META_INDEX_DATASET_NAME", "Publicus/common_crawl_pointer_indices"
-        ),
-        pointers_dataset_name=os.environ.get(
-            "HF_POINTER_DATASET_NAME", "Publicus/common_crawl_pointers_by_collection"
-        ),
+        index_dataset_name=os.environ.get("HF_META_INDEX_DATASET_NAME", "Publicus/common_crawl_pointer_indices"),
+        pointers_dataset_name=os.environ.get("HF_POINTER_DATASET_NAME", "Publicus/common_crawl_pointers_by_collection"),
         revision=os.environ.get("HF_META_DATASET_REVISION", "main"),
     )
 

@@ -4,9 +4,7 @@ from pathlib import Path
 import pytest
 
 
-def test_mcp_accepts_jsonrpc_batch_tools_list_and_call(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_mcp_accepts_jsonrpc_batch_tools_list_and_call(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # Avoid touching the repo's real state/ cache files.
     cache_path = tmp_path / "brave_cache.json"
     monkeypatch.setenv("BRAVE_SEARCH_CACHE_PATH", str(cache_path))
@@ -45,9 +43,7 @@ def test_mcp_accepts_jsonrpc_batch_tools_list_and_call(
     assert stats_resp["result"].get("path")
 
 
-def test_dashboard_main_workers_uses_import_string(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_dashboard_main_workers_uses_import_string(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     calls = {}
 
     def fake_run(*args, **kwargs):

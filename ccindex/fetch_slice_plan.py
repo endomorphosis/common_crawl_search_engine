@@ -47,12 +47,7 @@ def _iter_slice_plan(path: Path) -> Iterator[Tuple[str, int, int]]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Fetch all slices in a slice_plan.jsonl in parallel")
-    ap.add_argument(
-        "--cache-root",
-        type=Path,
-        default=None,
-        help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)",
-    )
+    ap.add_argument("--cache-root", type=Path, default=None, help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)")
     ap.add_argument(
         "--run-id",
         type=str,
@@ -89,9 +84,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     run_id = str(args.run_id).strip() if args.run_id is not None else ""
     if not run_id:
         try:
-            latest = (
-                (cache_root / "slice_indexes" / "LATEST.txt").read_text(encoding="utf-8").strip()
-            )
+            latest = (cache_root / "slice_indexes" / "LATEST.txt").read_text(encoding="utf-8").strip()
             if latest:
                 run_id = latest
         except Exception:
@@ -154,13 +147,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 dt = max(0.001, time.time() - started)
                 sys.stderr.write(
                     f"progress slices={i}/{len(slices)} ok={ok} fail={fail} "
-                    f"mb={total_bytes / 1e6:.1f} bps={total_bytes / dt:.0f}\n"
+                    f"mb={total_bytes/1e6:.1f} bps={total_bytes/dt:.0f}\n"
                 )
 
     dt = max(0.001, time.time() - started)
     sys.stderr.write(
-        f"ok={(1 if fail == 0 else 0)} slices={len(slices)} ok_slices={ok} fail_slices={fail} "
-        f"mb={total_bytes / 1e6:.1f} elapsed_s={dt:.1f} bps={total_bytes / dt:.0f}\n"
+        f"ok={(1 if fail==0 else 0)} slices={len(slices)} ok_slices={ok} fail_slices={fail} "
+        f"mb={total_bytes/1e6:.1f} elapsed_s={dt:.1f} bps={total_bytes/dt:.0f}\n"
     )
     return 0 if fail == 0 else 1
 

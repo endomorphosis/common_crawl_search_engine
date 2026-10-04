@@ -46,14 +46,10 @@ def test_plan_slices_from_pointers_dedup_and_merge(tmp_path: Path) -> None:
     )
     assert rc == 0
 
-    plan_lines = [
-        json.loads(l) for l in out_plan.read_text(encoding="utf-8").splitlines() if l.strip()
-    ]
+    plan_lines = [json.loads(l) for l in out_plan.read_text(encoding="utf-8").splitlines() if l.strip()]
     # Expect one slice for a.warc.gz (merged) + one for b.warc.gz.
     assert len(plan_lines) == 2
 
-    members_lines = [
-        json.loads(l) for l in out_members.read_text(encoding="utf-8").splitlines() if l.strip()
-    ]
+    members_lines = [json.loads(l) for l in out_members.read_text(encoding="utf-8").splitlines() if l.strip()]
     # Duplicate pointer should be deduped; expect 3 members total.
     assert len(members_lines) == 3

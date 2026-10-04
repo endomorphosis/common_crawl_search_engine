@@ -105,9 +105,7 @@ def _build_plan(tarballs: Iterable[Path], *, out_root: Path) -> Iterator[Extract
 
                     base = os.path.basename(m.name)
                     out_path = out_root / col / base
-                    yield ExtractPlanItem(
-                        tar_path=tar_path, member_name=m.name, collection=col, out_path=out_path
-                    )
+                    yield ExtractPlanItem(tar_path=tar_path, member_name=m.name, collection=col, out_path=out_path)
         except tarfile.TarError:
             continue
 
@@ -167,24 +165,9 @@ def extract_one(item: ExtractPlanItem, *, overwrite: bool, verify_gzip: bool) ->
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Extract CC index tarballs into cdx-*.gz layout")
-    ap.add_argument(
-        "--tar-root",
-        required=True,
-        type=str,
-        help="Directory containing *.tar.gz/*.tgz, or a single tarball path",
-    )
-    ap.add_argument(
-        "--out-root",
-        required=True,
-        type=str,
-        help="Output root where <collection>/cdx-*.gz will be created",
-    )
-    ap.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=False,
-        help="Overwrite existing extracted shard files",
-    )
+    ap.add_argument("--tar-root", required=True, type=str, help="Directory containing *.tar.gz/*.tgz, or a single tarball path")
+    ap.add_argument("--out-root", required=True, type=str, help="Output root where <collection>/cdx-*.gz will be created")
+    ap.add_argument("--overwrite", action="store_true", default=False, help="Overwrite existing extracted shard files")
     ap.add_argument(
         "--verify-gzip",
         action=argparse.BooleanOptionalAction,
@@ -208,11 +191,7 @@ def main() -> int:
 
     tar_root = Path(args.tar_root).expanduser().resolve()
     out_root = Path(args.out_root).expanduser().resolve()
-    log_path = (
-        Path(args.log_jsonl).expanduser().resolve()
-        if args.log_jsonl
-        else (out_root / "extract_cc_index_tarballs.jsonl")
-    )
+    log_path = Path(args.log_jsonl).expanduser().resolve() if args.log_jsonl else (out_root / "extract_cc_index_tarballs.jsonl")
 
     tarballs = list(_iter_tarballs(tar_root))
     if not tarballs:
@@ -228,9 +207,7 @@ def main() -> int:
     skipped = 0
     errors = 0
     for item in plan:
-        status = extract_one(
-            item, overwrite=bool(args.overwrite), verify_gzip=bool(args.verify_gzip)
-        )
+        status = extract_one(item, overwrite=bool(args.overwrite), verify_gzip=bool(args.verify_gzip))
         if status == "extracted":
             extracted += 1
         elif status.startswith("skipped"):

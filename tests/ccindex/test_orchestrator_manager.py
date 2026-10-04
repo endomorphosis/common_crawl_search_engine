@@ -13,7 +13,7 @@ def test_update_collinfo_writes_cache(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setenv("CCINDEX_COLLINFO_CACHE_PATH", str(cache_path))
 
     src = tmp_path / "src_collinfo.json"
-    src.write_text('[{"id": "CC-MAIN-2099-01", "name": "Test"}]\n', encoding="utf-8")
+    src.write_text("[{\"id\": \"CC-MAIN-2099-01\", \"name\": \"Test\"}]\n", encoding="utf-8")
 
     res = om.update_collinfo(url=src.as_uri(), timeout_s=5.0)
     assert res.get("ok") is True
@@ -31,7 +31,7 @@ def test_load_collinfo_prefers_cache(tmp_path: Path, monkeypatch: pytest.MonkeyP
     cache_path = tmp_path / "collinfo.json"
     monkeypatch.setenv("CCINDEX_COLLINFO_CACHE_PATH", str(cache_path))
 
-    cache_path.write_text('[{"id": "CC-MAIN-2099-02", "name": "Cached"}]\n', encoding="utf-8")
+    cache_path.write_text("[{\"id\": \"CC-MAIN-2099-02\", \"name\": \"Cached\"}]\n", encoding="utf-8")
 
     res = om.load_collinfo(prefer_cache=True)
     assert res.get("ok") is True

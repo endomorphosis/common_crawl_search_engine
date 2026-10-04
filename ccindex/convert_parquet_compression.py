@@ -174,7 +174,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             elif status == "converted":
                 converted += 1
                 print(
-                    f"convert {path} codecs={codecs} -> {target} size_mb={before / 1e6:.1f}->{after / 1e6:.1f}",
+                    f"convert {path} codecs={codecs} -> {target} size_mb={before/1e6:.1f}->{after/1e6:.1f}",
                     flush=True,
                 )
             elif status == "would_convert":

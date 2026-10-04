@@ -31,7 +31,6 @@ def collection_year(collection: str) -> Optional[str]:
     except Exception:
         return None
 
-
 REQUIRED_COLS = ("collection", "shard_file")
 DEFAULT_COMPRESSION = (os.environ.get("CC_PARQUET_COMPRESSION") or "zstd").strip().lower()
 DEFAULT_ROW_GROUP_SIZE = int(os.environ.get("CC_SORT_ROW_GROUP_SIZE") or "71680")
@@ -95,11 +94,7 @@ def _repair_file(
     if "shard_file" in missing:
         extras.append(f"'{pq_path.name}' AS shard_file")
 
-    select_sql = (
-        f"SELECT {select_cols}"
-        + (", " + ", ".join(extras) if extras else "")
-        + " FROM read_parquet(?)"
-    )
+    select_sql = f"SELECT {select_cols}" + (", " + ", ".join(extras) if extras else "") + " FROM read_parquet(?)"
 
     tmp = pq_path.with_suffix(pq_path.suffix + ".repair")
     try:
@@ -126,9 +121,7 @@ def _repair_file(
         except Exception:
             pass
 
-        copy_sql = (
-            f"COPY ({select_sql}) TO '{str(tmp).replace("'", "''")}' ({', '.join(copy_opts)})"
-        )
+        copy_sql = f"COPY ({select_sql}) TO '{str(tmp).replace("'", "''")}' ({', '.join(copy_opts)})"
         con.execute(copy_sql, [str(pq_path)])
         con.close()
     except Exception:

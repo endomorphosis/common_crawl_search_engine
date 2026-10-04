@@ -21,14 +21,13 @@ Usage:
 Environment variables:
     - HF_DATASET_NAME: HuggingFace dataset name (default: Publicus/common_crawl_pointers_by_collection)
     - HF_DATASET_REVISION: Dataset revision/tag to use (default: main)
-    - HF_TOKEN / HUGGINGFACE_HUB_TOKEN / huggingface_hub cached login: optional Hub token
+    - HF_TOKEN: HuggingFace API token for private datasets
     - HF_CACHE_DIR: Cache directory for downloaded data (default: ~/.cache/huggingface/datasets)
     - HF_ENABLE_REMOTE: Enable remote HuggingFace access (default: true)
 """
 
 from __future__ import annotations
 
-import importlib
 import os
 import random
 import time
@@ -36,92 +35,7 @@ import warnings
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Set, Tuple, Union
-
-_HF_TOKEN_ENV_NAMES = (
-    "IPFS_DATASETS_PY_HF_API_TOKEN",
-    "HUGGINGFACEHUB_API_TOKEN",
-    "HUGGINGFACE_API_TOKEN",
-    "HUGGINGFACE_HUB_TOKEN",
-    "HUGGINGFACE_API_KEY",
-    "HF_TOKEN",
-    "HF_API_TOKEN",
-)
-
-
-def resolve_huggingface_token(explicit_token: Optional[str] = None) -> str:
-    """Return a Hub token from an explicit value, env, or the local huggingface_hub login.
-
-    Does not log or raise on a missing token: anonymous public-dataset access remains
-    valid. Cached ``huggingface_hub.get_token()`` logins (``~/.cache/huggingface/token``)
-    are used when no environment variable is set.
-    """
-
-    if explicit_token is not None and str(explicit_token).strip():
-        return str(explicit_token).strip()
-    for name in _HF_TOKEN_ENV_NAMES:
-        value = os.getenv(name)
-        if value and str(value).strip():
-            return str(value).strip()
-    try:
-        hub = importlib.import_module("huggingface_hub")
-        getter = getattr(hub, "get_token", None)
-        resolved = getter() if callable(getter) else ""
-        if resolved is not None and str(resolved).strip():
-            return str(resolved).strip()
-    except Exception:
-        return ""
-    return ""
-
-
-def huggingface_authorization_headers(token: Optional[str] = None) -> Dict[str, str]:
-    """Return ``Authorization: Bearer …`` headers when a Hub token is available."""
-
-    resolved = resolve_huggingface_token(token)
-    if not resolved:
-        return {}
-    return {"Authorization": f"Bearer {resolved}"}
-
-
-def configure_duckdb_huggingface_auth(connection: object, token: Optional[str] = None) -> bool:
-    """Attach a DuckDB HuggingFace secret when a token is available.
-
-    Uses a bound parameter so the token is not interpolated into SQL. Returns True
-    only when a secret was created. Failures stay anonymous rather than aborting
-    the query.
-    """
-
-    resolved = resolve_huggingface_token(token)
-    if not resolved:
-        return False
-    execute = getattr(connection, "execute", None)
-    if not callable(execute):
-        return False
-    try:
-        try:
-            execute("LOAD httpfs")
-        except Exception:
-            try:
-                execute("INSTALL httpfs")
-                execute("LOAD httpfs")
-            except Exception:
-                pass
-        execute(
-            "CREATE OR REPLACE SECRET ipfs_datasets_huggingface "
-            "(TYPE HUGGINGFACE, TOKEN ?)",
-            [resolved],
-        )
-        return True
-    except Exception:
-        try:
-            execute(
-                "CREATE OR REPLACE SECRET ipfs_datasets_huggingface_http "
-                "(TYPE HTTP, EXTRA_HTTP_HEADERS MAP {'Authorization': ?})",
-                [f"Bearer {resolved}"],
-            )
-            return True
-        except Exception:
-            return False
+from typing import Dict, Iterator, List, Optional, Set, Tuple, Union
 
 # Lazy imports for optional dependencies
 _have_datasets = False
@@ -130,7 +44,6 @@ _datasets_import_error: Optional[str] = None
 try:
     import datasets
     from datasets import load_dataset
-
     _have_datasets = True
 except ImportError as e:
     _datasets_import_error = str(e)
@@ -138,7 +51,6 @@ except ImportError as e:
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
-
     _have_pyarrow = True
 except ImportError:
     _have_pyarrow = False
@@ -178,9 +90,7 @@ def _collection_year(collection: str) -> Optional[str]:
     return None
 
 
-_HF_COLLECTIONS_CACHE: Dict[
-    Tuple[str, str, Optional[str]], Tuple[Tuple[Optional[str], str], ...]
-] = {}
+_HF_COLLECTIONS_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[Tuple[Optional[str], str], ...]] = {}
 _HF_PARQUET_RELPATHS_CACHE: Dict[Tuple[str, str, str, str, bool], Tuple[str, ...]] = {}
 
 
@@ -200,7 +110,6 @@ class HFMetaIndexSQLReader:
         revision: Optional[str] = None,
         max_retries: Optional[int] = None,
         retry_base_sleep_s: Optional[float] = None,
-        token: Optional[str] = None,
     ):
         self.index_dataset_name = (
             index_dataset_name
@@ -241,7 +150,6 @@ class HFMetaIndexSQLReader:
             self.retry_base_sleep_s = 0.5
         if self.retry_base_sleep_s < 0:
             self.retry_base_sleep_s = 0.0
-        self.token = token
 
     def _require_duckdb(self):
         try:
@@ -261,7 +169,6 @@ class HFMetaIndexSQLReader:
             try:
                 con = duckdb.connect(database=":memory:")
                 try:
-                    configure_duckdb_huggingface_auth(con, token=self.token)
                     con.execute("PRAGMA threads=4")
                     return con.execute(sql, params).fetchall()
                 finally:
@@ -270,7 +177,7 @@ class HFMetaIndexSQLReader:
                 msg = str(e)
                 if attempt >= self.max_retries or not _is_transient_remote_error(msg):
                     raise
-                sleep_s = self.retry_base_sleep_s * (2**attempt)
+                sleep_s = self.retry_base_sleep_s * (2 ** attempt)
                 if "429" in msg or "too many requests" in msg.lower():
                     sleep_s = max(sleep_s, 2.0)
                 if sleep_s > 0:
@@ -282,11 +189,7 @@ class HFMetaIndexSQLReader:
     def list_collections(self, year: Optional[str] = None) -> List[Tuple[Optional[str], str]]:
         """Return [(year, collection), ...] from the HF master collection summary."""
 
-        cache_key = (
-            self.index_dataset_name,
-            self.revision,
-            str(year) if year is not None else None,
-        )
+        cache_key = (self.index_dataset_name, self.revision, str(year) if year is not None else None)
         cached = _HF_COLLECTIONS_CACHE.get(cache_key)
         if cached is not None:
             return list(cached)
@@ -331,9 +234,7 @@ class HFMetaIndexSQLReader:
             f"{y}/{collection}/{collection}__cc_domain_shards.parquet",
             f"{y}/cc_pointers_{y}.cc_domain_shards.parquet",
         ]
-        return [
-            hf_dataset_resolve_url(self.index_dataset_name, rp, self.revision) for rp in relpaths
-        ]
+        return [hf_dataset_resolve_url(self.index_dataset_name, rp, self.revision) for rp in relpaths]
 
     def parquet_relpaths_for_domain(
         self,
@@ -424,16 +325,8 @@ class HFMetaIndexSQLReader:
         host_rev_prefix: str,
         *,
         limit: int,
-        url_prefixes: Optional[Sequence[str]] = None,
     ) -> Iterator[Dict[str, object]]:
-        """Stream candidate WARC pointers with optional URL-prefix pushdown.
-
-        Domain-shard lookup identifies the small set of pointer parquet files,
-        while ``url_prefixes`` keeps DuckDB from materializing unrelated pages
-        from the same host.  This is particularly important for large official
-        code frontiers: one prefix query can discover every section locator and
-        the caller can subsequently group their byte ranges by WARC object.
-        """
+        """Stream candidate WARC pointer rows from HF pointer parquet shards."""
 
         y = _collection_year(collection)
         if not y:
@@ -460,21 +353,9 @@ class HFMetaIndexSQLReader:
                 warc_offset,
                 warc_length
             FROM read_parquet(?)
-            WHERE (host_rev = ? OR host_rev LIKE ?)
+            WHERE host_rev = ? OR host_rev LIKE ?
         """
         params: List[object] = [url, host_rev_prefix, like_pat]
-        normalized_prefixes = tuple(
-            dict.fromkeys(
-                str(prefix or "").strip().rstrip("%*")
-                for prefix in (url_prefixes or ())
-                if str(prefix or "").strip().rstrip("%*")
-            )
-        )
-        if normalized_prefixes:
-            sql += "\nAND (" + " OR ".join(
-                "url LIKE ?" for _prefix in normalized_prefixes
-            ) + ")"
-            params.extend(f"{prefix}%" for prefix in normalized_prefixes)
         if int(limit) > 0:
             sql += "\nLIMIT ?"
             params.append(int(limit))
@@ -557,7 +438,7 @@ class HFRowGroupReader:
             "HF_DATASET_NAME", "Publicus/common_crawl_pointers_by_collection"
         )
         self.revision = revision or os.environ.get("HF_DATASET_REVISION", "main")
-        self.token = resolve_huggingface_token(token) or None
+        self.token = token or os.environ.get("HF_TOKEN")
         self.cache_dir = cache_dir or os.environ.get("HF_CACHE_DIR")
         self.enable_remote = enable_remote
         if os.environ.get("HF_ENABLE_REMOTE", "").lower() in ("false", "0", "no"):
@@ -641,20 +522,15 @@ class HFRowGroupReader:
         try:
             # Get the underlying data files
             # HuggingFace datasets can provide access to underlying files
-            if hasattr(ds, "_data") and hasattr(ds._data, "files"):
+            if hasattr(ds, '_data') and hasattr(ds._data, 'files'):
                 data_files = ds._data.files
-            elif hasattr(ds, "cache_files"):
-                data_files = [f["filename"] for f in ds.cache_files]
+            elif hasattr(ds, 'cache_files'):
+                data_files = [f['filename'] for f in ds.cache_files]
             else:
                 # Try to find parquet files in the dataset cache directory
                 year = self._get_collection_year(collection)
                 if year and self.cache_dir:
-                    cache_path = (
-                        Path(self.cache_dir)
-                        / self.dataset_name.replace("/", "--")
-                        / year
-                        / collection
-                    )
+                    cache_path = Path(self.cache_dir) / self.dataset_name.replace("/", "--") / year / collection
                     if cache_path.exists():
                         parquet_path = cache_path / parquet_filename
                         if parquet_path.exists():
@@ -740,16 +616,16 @@ class HFRowGroupReader:
         parquet_files: List[str] = []
 
         try:
-            if hasattr(ds, "_data") and hasattr(ds._data, "files"):
+            if hasattr(ds, '_data') and hasattr(ds._data, 'files'):
                 data_files = ds._data.files
-            elif hasattr(ds, "cache_files"):
-                data_files = [f["filename"] for f in ds.cache_files]
+            elif hasattr(ds, 'cache_files'):
+                data_files = [f['filename'] for f in ds.cache_files]
             else:
                 return []
 
             for file_path in data_files:
                 path_str = str(file_path)
-                if path_str.endswith(".parquet"):
+                if path_str.endswith('.parquet'):
                     parquet_files.append(Path(path_str).name)
 
         except Exception as e:

@@ -216,9 +216,7 @@ def _download_range(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Download exact WARC byte ranges from pointer JSONL records"
-    )
+    ap = argparse.ArgumentParser(description="Download exact WARC byte ranges from pointer JSONL records")
     ap.add_argument(
         "--out-dir",
         type=Path,
@@ -231,9 +229,7 @@ def main() -> int:
         default="https://data.commoncrawl.org/",
         help="Prefix for warc_filename paths when input does not contain full URLs",
     )
-    ap.add_argument(
-        "--max-records", type=int, default=20, help="Max records to download (default: 20)"
-    )
+    ap.add_argument("--max-records", type=int, default=20, help="Max records to download (default: 20)")
     ap.add_argument(
         "--max-bytes",
         type=int,

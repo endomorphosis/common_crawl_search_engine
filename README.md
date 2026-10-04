@@ -103,7 +103,9 @@ client = CcindexMcpClient(endpoint="http://localhost:8787")
 tools = client.list_tools()
 
 # Call a tool
-result = client.call_tool("list_collections", {"master_db": "/path/to/master.duckdb"})
+result = client.call_tool("list_collections", {
+    "master_db": "/path/to/master.duckdb"
+})
 ```
 
 ### Using from Command Line

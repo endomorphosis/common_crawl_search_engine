@@ -261,16 +261,9 @@ def _rows_to_table(pa, schema: object, rows: List[Dict[str, object]]):
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(
-        description="Build ccindex pointers parquet from a JSONL (e.g. state agencies)"
-    )
+    ap = argparse.ArgumentParser(description="Build ccindex pointers parquet from a JSONL (e.g. state agencies)")
     ap.add_argument("--jsonl", type=Path, required=True, help="Input JSONL")
-    ap.add_argument(
-        "--cache-root",
-        type=Path,
-        default=None,
-        help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)",
-    )
+    ap.add_argument("--cache-root", type=Path, default=None, help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)")
     ap.add_argument("--run-id", type=str, default=None, help="Run ID (default: UTC timestamp)")
     ap.add_argument(
         "--out-parquet",
@@ -305,12 +298,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     src.add_argument("--year-db", type=Path, default=None, help="Year meta-index DuckDB")
     src.add_argument("--collection-db", type=Path, default=None, help="Single collection DuckDB")
 
-    ap.add_argument(
-        "--year", type=str, default=None, help="Restrict to a year (only used with --master-db)"
-    )
-    ap.add_argument(
-        "--parquet-root", type=Path, default=Path("/storage/ccindex_parquet"), help="Parquet root"
-    )
+    ap.add_argument("--year", type=str, default=None, help="Restrict to a year (only used with --master-db)")
+    ap.add_argument("--parquet-root", type=Path, default=Path("/storage/ccindex_parquet"), help="Parquet root")
 
     # Caps: <=0 means no cap.
     ap.add_argument("--max-parquet-files", type=int, default=0)
@@ -334,11 +323,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         else _default_cache_root().resolve()
     )
 
-    run_id = (
-        str(args.run_id).strip()
-        if args.run_id is not None
-        else datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    )
+    run_id = str(args.run_id).strip() if args.run_id is not None else datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     run_dir = _run_dir(cache_root, run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -354,15 +339,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     combined_url_fields: List[str] = []
     if args.url_field:
         combined_url_fields.append(str(args.url_field))
-    for f in args.url_fields or []:
+    for f in (args.url_fields or []):
         sf = str(f or "").strip()
         if sf:
             combined_url_fields.append(sf)
     # Deduplicate while preserving order.
     _seen_fields: set[str] = set()
-    combined_url_fields = [
-        f for f in combined_url_fields if not (f in _seen_fields or _seen_fields.add(f))
-    ]
+    combined_url_fields = [f for f in combined_url_fields if not (f in _seen_fields or _seen_fields.add(f))]
 
     domains, meta_by, urls_by_domain = build_domains_from_jsonl(
         jsonl_path,
@@ -384,9 +367,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         with out_sources.open("a", encoding="utf-8") as f:
             for d in sorted(urls_by_domain.keys()):
                 f.write(
-                    json.dumps(
-                        {"domain": d, "input_urls": urls_by_domain.get(d) or []}, ensure_ascii=False
-                    )
+                    json.dumps({"domain": d, "input_urls": urls_by_domain.get(d) or []}, ensure_ascii=False)
                     + "\n"
                 )
     except Exception:
@@ -402,9 +383,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     out_parquet_tmp = Path(str(out_parquet) + ".inprogress")
 
     try:
-        (cache_root / "slice_indexes" / "LATEST.txt").write_text(
-            str(run_id) + "\n", encoding="utf-8"
-        )
+        (cache_root / "slice_indexes" / "LATEST.txt").write_text(str(run_id) + "\n", encoding="utf-8")
         (run_dir / "meta.json").write_text(
             json.dumps(
                 {
@@ -551,7 +530,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 pass
 
     sys.stderr.write(
-        f"ok={(1 if failed == 0 else 0)} domains={len(domains)} completed={completed} failed={failed} "
+        f"ok={(1 if failed==0 else 0)} domains={len(domains)} completed={completed} failed={failed} "
         f"pointers={total_emitted} elapsed_s={time.time() - started:.1f}\n"
     )
     return 0

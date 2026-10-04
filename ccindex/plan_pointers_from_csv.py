@@ -30,7 +30,9 @@ def _require_pyarrow():
         import pyarrow as pa  # type: ignore
         import pyarrow.parquet as pq  # type: ignore
     except Exception as e:  # pragma: no cover
-        raise RuntimeError("pyarrow is required for --out-parquet (install pyarrow)") from e
+        raise RuntimeError(
+            "pyarrow is required for --out-parquet (install pyarrow)"
+        ) from e
     return pa, pq
 
 
@@ -196,15 +198,8 @@ def _run_dir(cache_root: Path, run_id: str) -> Path:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="Build ccindex pointer JSONL from a municipal URL CSV")
-    ap.add_argument(
-        "--csv", type=Path, required=True, help="Input CSV (must include source_url column)"
-    )
-    ap.add_argument(
-        "--cache-root",
-        type=Path,
-        default=None,
-        help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)",
-    )
+    ap.add_argument("--csv", type=Path, required=True, help="Input CSV (must include source_url column)")
+    ap.add_argument("--cache-root", type=Path, default=None, help="Cache root (default: datasets/CCINDEX_WARC_CACHE_DIR)")
     ap.add_argument(
         "--run-id",
         type=str,
@@ -234,9 +229,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     src.add_argument("--year-db", type=Path, default=None, help="Year meta-index DuckDB")
     src.add_argument("--collection-db", type=Path, default=None, help="Single collection DuckDB")
 
-    ap.add_argument(
-        "--year", type=str, default=None, help="Restrict to a year (only used with --master-db)"
-    )
+    ap.add_argument("--year", type=str, default=None, help="Restrict to a year (only used with --master-db)")
     ap.add_argument(
         "--parquet-root",
         type=Path,
@@ -261,12 +254,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=0,
         help="Max pointers to read per parquet shard (<=0 means no cap)",
     )
-    ap.add_argument(
-        "--domain-workers", type=int, default=12, help="Parallelism for per-domain index search"
-    )
-    ap.add_argument(
-        "--domains-limit", type=int, default=None, help="For testing: only process first N domains"
-    )
+    ap.add_argument("--domain-workers", type=int, default=12, help="Parallelism for per-domain index search")
+    ap.add_argument("--domains-limit", type=int, default=None, help="For testing: only process first N domains")
     ap.add_argument("--emit-stats", action="store_true", default=True)
     ap.add_argument("--no-emit-stats", dest="emit_stats", action="store_false")
 
@@ -276,21 +265,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not csv_path.exists():
         raise SystemExit(f"CSV not found: {csv_path}")
 
-    cache_root = (
-        Path(args.cache_root).expanduser().resolve()
-        if args.cache_root is not None
-        else _default_cache_root().resolve()
-    )
-    run_id = (
-        str(args.run_id).strip()
-        if args.run_id is not None
-        else datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    )
+    cache_root = (Path(args.cache_root).expanduser().resolve() if args.cache_root is not None else _default_cache_root().resolve())
+    run_id = str(args.run_id).strip() if args.run_id is not None else datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     run_dir = _run_dir(cache_root, run_id)
     run_dir.mkdir(parents=True, exist_ok=True)
 
     out_parquet = (
-        Path(args.out_parquet).expanduser().resolve() if args.out_parquet is not None else None
+        Path(args.out_parquet).expanduser().resolve()
+        if args.out_parquet is not None
+        else None
     )
     out_jsonl = None
     if out_parquet is None:
@@ -331,9 +314,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     "pointers_jsonl": (str(out_jsonl) if out_jsonl is not None else None),
                     "pointers_parquet": (str(out_parquet) if out_parquet is not None else None),
                     "pointers_parquet_inprogress": (
-                        str(Path(str(out_parquet) + ".inprogress"))
-                        if out_parquet is not None
-                        else None
+                        (str(Path(str(out_parquet) + ".inprogress")) if out_parquet is not None else None)
                     ),
                 },
                 ensure_ascii=False,
@@ -342,16 +323,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             + "\n",
             encoding="utf-8",
         )
-        (cache_root / "slice_indexes" / "LATEST.txt").write_text(
-            str(run_id) + "\n", encoding="utf-8"
-        )
+        (cache_root / "slice_indexes" / "LATEST.txt").write_text(str(run_id) + "\n", encoding="utf-8")
     except Exception:
         pass
 
     out_desc = str(out_parquet) if out_parquet is not None else str(out_jsonl)
-    sys.stderr.write(
-        f"domains={len(domains)} out={out_desc} run_dir={run_dir} ranges_dir={cache_root / 'ranges'}\n"
-    )
+    sys.stderr.write(f"domains={len(domains)} out={out_desc} run_dir={run_dir} ranges_dir={cache_root / 'ranges'}\n")
 
     lock = __import__("threading").Lock()
     started = time.time()
@@ -482,7 +459,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 pass
 
     sys.stderr.write(
-        f"ok={(1 if failed == 0 else 0)} domains={len(domains)} completed={completed} failed={failed} "
+        f"ok={(1 if failed==0 else 0)} domains={len(domains)} completed={completed} failed={failed} "
         f"pointers={total_emitted} elapsed_s={time.time() - started:.1f}\n"
     )
     return 0

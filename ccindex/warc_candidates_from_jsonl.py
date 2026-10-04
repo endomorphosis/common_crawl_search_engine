@@ -112,9 +112,7 @@ def _sorted_aggs(by_warc: Dict[str, WarcAgg], sort_by: str) -> List[WarcAgg]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(
-        description="Deduplicate/group JSONL pointer results into candidate WARC filenames"
-    )
+    ap = argparse.ArgumentParser(description="Deduplicate/group JSONL pointer results into candidate WARC filenames")
     ap.add_argument("--input", type=Path, default=None, help="Input JSONL file (default: stdin)")
     ap.add_argument(
         "--format",
@@ -137,12 +135,8 @@ def main() -> int:
         default="bytes",
         help="Sort order (default: bytes desc)",
     )
-    ap.add_argument(
-        "--max-warcs", type=int, default=None, help="Limit number of WARC files emitted"
-    )
-    ap.add_argument(
-        "--min-count", type=int, default=1, help="Only emit WARCs with at least this many matches"
-    )
+    ap.add_argument("--max-warcs", type=int, default=None, help="Limit number of WARC files emitted")
+    ap.add_argument("--min-count", type=int, default=1, help="Only emit WARCs with at least this many matches")
 
     args = ap.parse_args()
 
@@ -201,28 +195,10 @@ def main() -> int:
         if prefix and not prefix.endswith("/"):
             prefix += "/"
     w = csv.writer(sys.stdout)
-    w.writerow(
-        [
-            "warc_filename",
-            "download_url",
-            "record_count",
-            "total_warc_bytes",
-            "min_offset",
-            "max_offset_end",
-        ]
-    )
+    w.writerow(["warc_filename", "download_url", "record_count", "total_warc_bytes", "min_offset", "max_offset_end"])
     for a in aggs:
         url = (prefix + a.warc_filename.lstrip("/")) if prefix else ""
-        w.writerow(
-            [
-                a.warc_filename,
-                url,
-                a.record_count,
-                a.total_warc_bytes,
-                a.min_offset,
-                a.max_offset_end,
-            ]
-        )
+        w.writerow([a.warc_filename, url, a.record_count, a.total_warc_bytes, a.min_offset, a.max_offset_end])
 
     return 0
 

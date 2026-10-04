@@ -83,10 +83,10 @@ class SearchBenchmark:
         self.parquet_root = parquet_root
         self.threads = threads
         self.db_files = _iter_duckdb_files(duckdb_path)
-
+        
         if not self.db_files:
             raise ValueError(f"No DuckDB files found at {duckdb_path}")
-
+        
         # Gather sample data
         self.sample_domains: List[Tuple[str, str]] = []  # (host, host_rev)
         self.sample_parquet_paths: List[str] = []
@@ -96,7 +96,7 @@ class SearchBenchmark:
         """Collect sample domains and parquet paths from index."""
         domains_set = set()
         parquet_set = set()
-
+        
         for db_file in self.db_files[:3]:  # Sample from first 3 DBs
             con = duckdb.connect(str(db_file), read_only=True)
             try:
@@ -104,7 +104,7 @@ class SearchBenchmark:
                     rows = con.execute(
                         "SELECT DISTINCT host, host_rev, parquet_relpath FROM cc_domain_shards LIMIT 1000"
                     ).fetchall()
-
+                    
                     for host, host_rev, pq_path in rows:
                         if host and host_rev:
                             domains_set.add((host, host_rev))
@@ -112,7 +112,7 @@ class SearchBenchmark:
                             parquet_set.add(pq_path)
             finally:
                 con.close()
-
+        
         self.sample_domains = list(domains_set)
         self.sample_parquet_paths = list(parquet_set)
 
@@ -120,11 +120,11 @@ class SearchBenchmark:
         """Benchmark single domain lookups in DuckDB index."""
         samples = random.sample(self.sample_domains, min(n_samples, len(self.sample_domains)))
         times: List[float] = []
-
+        
         for host, host_rev in samples:
             like_pat = host_rev + ",%"
             t0 = time.perf_counter()
-
+            
             for db_file in self.db_files:
                 con = duckdb.connect(str(db_file), read_only=True)
                 try:
@@ -136,10 +136,10 @@ class SearchBenchmark:
                         ).fetchall()
                 finally:
                     con.close()
-
+            
             dt_ms = (time.perf_counter() - t0) * 1000.0
             times.append(dt_ms)
-
+        
         return self._compute_stats("Domain Lookup", times)
 
     def benchmark_rowgroup_lookup(self, n_samples: int = 50) -> Optional[BenchmarkResult]:
@@ -147,11 +147,11 @@ class SearchBenchmark:
         samples = random.sample(self.sample_domains, min(n_samples, len(self.sample_domains)))
         times: List[float] = []
         has_rowgroups = False
-
+        
         for host, host_rev in samples:
             like_pat = host_rev + ",%"
             t0 = time.perf_counter()
-
+            
             for db_file in self.db_files:
                 con = duckdb.connect(str(db_file), read_only=True)
                 try:
@@ -169,34 +169,35 @@ class SearchBenchmark:
                         ).fetchall()
                 finally:
                     con.close()
-
+            
             dt_ms = (time.perf_counter() - t0) * 1000.0
             times.append(dt_ms)
-
+        
         if not has_rowgroups:
             return None
-
+        
         return self._compute_stats("Row Group Range Lookup", times)
 
     def benchmark_parquet_scan_full(self, n_samples: int = 10) -> Optional[BenchmarkResult]:
         """Benchmark full parquet file scans."""
         if not self.parquet_root:
             return None
-
+        
         samples = random.sample(
-            self.sample_parquet_paths, min(n_samples, len(self.sample_parquet_paths))
+            self.sample_parquet_paths,
+            min(n_samples, len(self.sample_parquet_paths))
         )
         times: List[float] = []
-
+        
         con = duckdb.connect(database=":memory:")
         try:
             con.execute(f"PRAGMA threads={self.threads}")
-
+            
             for pq_relpath in samples:
                 pq_path = self.parquet_root / pq_relpath
                 if not pq_path.exists():
                     continue
-
+                
                 t0 = time.perf_counter()
                 con.execute(
                     "SELECT count(*) FROM read_parquet(?)",
@@ -206,26 +207,27 @@ class SearchBenchmark:
                 times.append(dt_ms)
         finally:
             con.close()
-
+        
         if not times:
             return None
-
+        
         return self._compute_stats("Parquet Full Scan", times)
 
     def benchmark_parquet_filtered_scan(self, n_samples: int = 20) -> Optional[BenchmarkResult]:
         """Benchmark filtered parquet scans by host_rev."""
         if not self.parquet_root:
             return None
-
+        
         domain_samples = random.sample(
-            self.sample_domains, min(n_samples, len(self.sample_domains))
+            self.sample_domains,
+            min(n_samples, len(self.sample_domains))
         )
         times: List[float] = []
-
+        
         con = duckdb.connect(database=":memory:")
         try:
             con.execute(f"PRAGMA threads={self.threads}")
-
+            
             for host, host_rev in domain_samples:
                 # Find a parquet file for this domain
                 pq_path = None
@@ -242,10 +244,10 @@ class SearchBenchmark:
                                 break
                     finally:
                         dcon.close()
-
+                
                 if not pq_path or not pq_path.exists():
                     continue
-
+                
                 like_pat = host_rev + ",%"
                 t0 = time.perf_counter()
                 con.execute(
@@ -260,39 +262,39 @@ class SearchBenchmark:
                 times.append(dt_ms)
         finally:
             con.close()
-
+        
         if not times:
             return None
-
+        
         return self._compute_stats("Parquet Filtered Scan", times)
 
     def benchmark_url_join(self, n_urls: int = 100) -> Optional[BenchmarkResult]:
         """Benchmark URL lookup via join operation."""
         if not self.parquet_root or not self.sample_parquet_paths:
             return None
-
+        
         # Get sample URLs from a parquet file
         sample_pq = self.parquet_root / self.sample_parquet_paths[0]
         if not sample_pq.exists():
             return None
-
+        
         con = duckdb.connect(database=":memory:")
         try:
             con.execute(f"PRAGMA threads={self.threads}")
-
+            
             # Extract sample URLs
             urls = con.execute(
                 f"SELECT DISTINCT url FROM read_parquet(?) WHERE url IS NOT NULL LIMIT {n_urls}",
                 [str(sample_pq)],
             ).fetchall()
-
+            
             if not urls:
                 return None
-
+            
             # Create lookup table
             con.execute("CREATE TABLE search_urls (url VARCHAR)")
             con.executemany("INSERT INTO search_urls VALUES (?)", urls)
-
+            
             # Benchmark join
             t0 = time.perf_counter()
             con.execute(
@@ -304,7 +306,7 @@ class SearchBenchmark:
                 [str(sample_pq)],
             ).fetchall()
             dt_ms = (time.perf_counter() - t0) * 1000.0
-
+            
             return BenchmarkResult(
                 name=f"URL Join ({n_urls} URLs)",
                 iterations=1,
@@ -322,7 +324,7 @@ class SearchBenchmark:
     def benchmark_index_scan_all_domains(self) -> BenchmarkResult:
         """Benchmark scanning all domains in index."""
         times: List[float] = []
-
+        
         for db_file in self.db_files:
             con = duckdb.connect(str(db_file), read_only=True)
             try:
@@ -334,7 +336,7 @@ class SearchBenchmark:
                     times.append(dt_ms)
             finally:
                 con.close()
-
+        
         return self._compute_stats("Full Index Scan", times)
 
     def _compute_stats(self, name: str, times: List[float]) -> BenchmarkResult:
@@ -351,13 +353,13 @@ class SearchBenchmark:
                 total_time_ms=0.0,
                 throughput_per_sec=0.0,
             )
-
+        
         mean = statistics.mean(times)
         median = statistics.median(times)
         stddev = statistics.stdev(times) if len(times) > 1 else 0.0
         total = sum(times)
         throughput = len(times) / (total / 1000.0) if total > 0 else 0.0
-
+        
         return BenchmarkResult(
             name=name,
             iterations=len(times),
@@ -375,7 +377,7 @@ def print_result(result: Optional[BenchmarkResult]) -> None:
     """Print benchmark result in formatted table."""
     if result is None:
         return
-
+    
     print(f"\n{result.name}")
     print("=" * 70)
     print(f"  Iterations:     {result.iterations}")
@@ -393,21 +395,19 @@ def main() -> int:
     ap.add_argument("--duckdb-dir", required=True, type=str, help="DuckDB directory or file")
     ap.add_argument("--parquet-root", type=str, help="Parquet root directory")
     ap.add_argument("--threads", type=int, default=4, help="DuckDB threads")
-    ap.add_argument(
-        "--sample-domains", type=int, default=100, help="Sample size for domain lookups"
-    )
+    ap.add_argument("--sample-domains", type=int, default=100, help="Sample size for domain lookups")
     ap.add_argument("--sample-urls", type=int, default=100, help="Sample size for URL searches")
     ap.add_argument("--quick", action="store_true", help="Run quick benchmark (fewer samples)")
-
+    
     args = ap.parse_args()
-
+    
     duckdb_path = Path(args.duckdb_dir).expanduser().resolve()
     parquet_root = Path(args.parquet_root).expanduser().resolve() if args.parquet_root else None
-
+    
     if args.quick:
         args.sample_domains = 20
         args.sample_urls = 50
-
+    
     print("=" * 70)
     print("Common Crawl DuckDB Index Search Benchmark")
     print("=" * 70)
@@ -415,29 +415,29 @@ def main() -> int:
     print(f"Parquet Root:   {parquet_root or 'Not provided'}")
     print(f"Threads:        {args.threads}")
     print(f"Quick Mode:     {args.quick}")
-
+    
     bench = SearchBenchmark(
         duckdb_path=duckdb_path,
         parquet_root=parquet_root,
         threads=args.threads,
     )
-
+    
     print(f"\nSample Data Collected:")
     print(f"  Domains:  {len(bench.sample_domains):,}")
     print(f"  Parquet:  {len(bench.sample_parquet_paths):,}")
-
+    
     print("\n" + "=" * 70)
     print("Running Benchmarks...")
     print("=" * 70)
-
+    
     # Run benchmarks
     results = []
-
+    
     print("\n[1/7] Domain lookup benchmark...")
     result = bench.benchmark_domain_lookup(n_samples=args.sample_domains)
     results.append(result)
     print_result(result)
-
+    
     print("\n[2/7] Row group range lookup benchmark...")
     result = bench.benchmark_rowgroup_lookup(n_samples=min(50, args.sample_domains))
     if result:
@@ -445,12 +445,12 @@ def main() -> int:
         print_result(result)
     else:
         print("  SKIPPED: No row group data available")
-
+    
     print("\n[3/7] Full index scan benchmark...")
     result = bench.benchmark_index_scan_all_domains()
     results.append(result)
     print_result(result)
-
+    
     if parquet_root:
         print("\n[4/7] Parquet full scan benchmark...")
         result = bench.benchmark_parquet_scan_full(n_samples=10)
@@ -459,7 +459,7 @@ def main() -> int:
             print_result(result)
         else:
             print("  SKIPPED: No parquet files available")
-
+        
         print("\n[5/7] Parquet filtered scan benchmark...")
         result = bench.benchmark_parquet_filtered_scan(n_samples=20)
         if result:
@@ -467,7 +467,7 @@ def main() -> int:
             print_result(result)
         else:
             print("  SKIPPED: Could not perform filtered scans")
-
+        
         print("\n[6/7] URL join benchmark...")
         result = bench.benchmark_url_join(n_urls=args.sample_urls)
         if result:
@@ -479,14 +479,14 @@ def main() -> int:
         print("\n[4/7] Parquet benchmarks SKIPPED (no --parquet-root)")
         print("[5/7] SKIPPED")
         print("[6/7] SKIPPED")
-
+    
     print("\n" + "=" * 70)
     print("Benchmark Summary")
     print("=" * 70)
-
+    
     for r in results:
         print(f"{r.name:30s}  {r.mean_ms:8.2f} ms  ({r.throughput_per_sec:8.1f} ops/sec)")
-
+    
     print("\n" + "=" * 70)
     print("Interpretation Guide:")
     print("=" * 70)
@@ -495,7 +495,7 @@ def main() -> int:
     print("Filtered Scan:      <100ms = Good for sorted data, >500ms = Consider indexing")
     print("URL Join:           Depends on batch size; ~10-50ms per 100 URLs is typical")
     print("Full Index Scan:    Depends on DB size; useful for baseline comparison")
-
+    
     return 0
 
 

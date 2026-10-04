@@ -84,12 +84,7 @@ def load_collinfo(*, prefer_cache: bool = True) -> dict[str, Any]:
         try:
             data = json.loads(cache.read_text(encoding="utf-8"))
             if isinstance(data, list):
-                return {
-                    "ok": True,
-                    "source_path": str(cache),
-                    "fetched_at": None,
-                    "collections": data,
-                }
+                return {"ok": True, "source_path": str(cache), "fetched_at": None, "collections": data}
         except Exception:
             pass
 
@@ -98,12 +93,7 @@ def load_collinfo(*, prefer_cache: bool = True) -> dict[str, Any]:
         try:
             data = json.loads(repo.read_text(encoding="utf-8"))
             if isinstance(data, list):
-                return {
-                    "ok": True,
-                    "source_path": str(repo),
-                    "fetched_at": None,
-                    "collections": data,
-                }
+                return {"ok": True, "source_path": str(repo), "fetched_at": None, "collections": data}
         except Exception:
             pass
 
@@ -174,20 +164,11 @@ def default_orchestrator_settings() -> Dict[str, Any]:
         "config_path": str(cfg.get("config_path") or _pipeline_config_path_default()),
         "ccindex_root": str(cfg.get("ccindex_root") or "/storage/ccindex"),
         "parquet_root": str(cfg.get("parquet_root") or "/storage/ccindex_parquet"),
-        "duckdb_collection_root": str(
-            cfg.get("duckdb_collection_root") or "/storage/ccindex_duckdb/cc_pointers_by_collection"
-        ),
-        "duckdb_year_root": str(
-            cfg.get("duckdb_year_root") or "/storage/ccindex_duckdb/cc_pointers_by_year"
-        ),
-        "duckdb_master_root": str(
-            cfg.get("duckdb_master_root") or "/storage/ccindex_duckdb/cc_pointers_master"
-        ),
+        "duckdb_collection_root": str(cfg.get("duckdb_collection_root") or "/storage/ccindex_duckdb/cc_pointers_by_collection"),
+        "duckdb_year_root": str(cfg.get("duckdb_year_root") or "/storage/ccindex_duckdb/cc_pointers_by_year"),
+        "duckdb_master_root": str(cfg.get("duckdb_master_root") or "/storage/ccindex_duckdb/cc_pointers_master"),
         "build_domain_rowgroup_index": bool(cfg.get("build_domain_rowgroup_index", True)),
-        "domain_rowgroup_index_root": str(
-            cfg.get("domain_rowgroup_index_root")
-            or "/storage/ccindex_duckdb/cc_domain_rowgroups_by_collection"
-        ),
+        "domain_rowgroup_index_root": str(cfg.get("domain_rowgroup_index_root") or "/storage/ccindex_duckdb/cc_domain_rowgroups_by_collection"),
         "domain_rowgroup_index_batch_size": int(cfg.get("domain_rowgroup_index_batch_size") or 1),
         "max_workers": int(cfg.get("max_workers") or 8),
         "collections_filter": cfg.get("collections_filter"),
@@ -221,22 +202,15 @@ def load_orchestrator_settings() -> Dict[str, Any]:
 
         # Normalize
         out["max_workers"] = int(out.get("max_workers") or defaults["max_workers"])
-        out["heartbeat_seconds"] = int(
-            out.get("heartbeat_seconds") or defaults["heartbeat_seconds"]
-        )
+        out["heartbeat_seconds"] = int(out.get("heartbeat_seconds") or defaults["heartbeat_seconds"])
         out["cleanup_extraneous"] = bool(out.get("cleanup_extraneous"))
         out["cleanup_dry_run"] = bool(out.get("cleanup_dry_run"))
         out["cleanup_source_archives"] = bool(out.get("cleanup_source_archives"))
-        out["sort_memory_per_worker_gb"] = float(
-            out.get("sort_memory_per_worker_gb") or defaults["sort_memory_per_worker_gb"]
-        )
+        out["sort_memory_per_worker_gb"] = float(out.get("sort_memory_per_worker_gb") or defaults["sort_memory_per_worker_gb"])
         out["force_reindex"] = bool(out.get("force_reindex"))
 
         out["build_domain_rowgroup_index"] = bool(out.get("build_domain_rowgroup_index"))
-        out["domain_rowgroup_index_batch_size"] = int(
-            out.get("domain_rowgroup_index_batch_size")
-            or defaults["domain_rowgroup_index_batch_size"]
-        )
+        out["domain_rowgroup_index_batch_size"] = int(out.get("domain_rowgroup_index_batch_size") or defaults["domain_rowgroup_index_batch_size"])
 
         if out.get("domain_rowgroup_index_root") is not None:
             s = str(out.get("domain_rowgroup_index_root") or "").strip()
@@ -273,14 +247,10 @@ def save_orchestrator_settings(settings: Dict[str, Any]) -> Dict[str, Any]:
     # Validate + normalize.
     out["max_workers"] = int(out.get("max_workers") or defaults["max_workers"])
     out["heartbeat_seconds"] = int(out.get("heartbeat_seconds") or defaults["heartbeat_seconds"])
-    out["sort_memory_per_worker_gb"] = float(
-        out.get("sort_memory_per_worker_gb") or defaults["sort_memory_per_worker_gb"]
-    )
+    out["sort_memory_per_worker_gb"] = float(out.get("sort_memory_per_worker_gb") or defaults["sort_memory_per_worker_gb"])
 
     out["build_domain_rowgroup_index"] = bool(out.get("build_domain_rowgroup_index"))
-    out["domain_rowgroup_index_batch_size"] = int(
-        out.get("domain_rowgroup_index_batch_size") or defaults["domain_rowgroup_index_batch_size"]
-    )
+    out["domain_rowgroup_index_batch_size"] = int(out.get("domain_rowgroup_index_batch_size") or defaults["domain_rowgroup_index_batch_size"])
     if out.get("domain_rowgroup_index_root") is not None:
         s = str(out.get("domain_rowgroup_index_root") or "").strip()
         out["domain_rowgroup_index_root"] = s or None
@@ -301,24 +271,11 @@ def build_pipeline_config(settings: Optional[Dict[str, Any]] = None) -> "object"
     return PipelineConfig(
         ccindex_root=Path(str(s.get("ccindex_root") or "/storage/ccindex")),
         parquet_root=Path(str(s.get("parquet_root") or "/storage/ccindex_parquet")),
-        duckdb_collection_root=Path(
-            str(
-                s.get("duckdb_collection_root")
-                or "/storage/ccindex_duckdb/cc_pointers_by_collection"
-            )
-        ),
-        duckdb_year_root=Path(
-            str(s.get("duckdb_year_root") or "/storage/ccindex_duckdb/cc_pointers_by_year")
-        ),
-        duckdb_master_root=Path(
-            str(s.get("duckdb_master_root") or "/storage/ccindex_duckdb/cc_pointers_master")
-        ),
+        duckdb_collection_root=Path(str(s.get("duckdb_collection_root") or "/storage/ccindex_duckdb/cc_pointers_by_collection")),
+        duckdb_year_root=Path(str(s.get("duckdb_year_root") or "/storage/ccindex_duckdb/cc_pointers_by_year")),
+        duckdb_master_root=Path(str(s.get("duckdb_master_root") or "/storage/ccindex_duckdb/cc_pointers_master")),
         build_domain_rowgroup_index=bool(s.get("build_domain_rowgroup_index", True)),
-        domain_rowgroup_index_root=(
-            Path(str(s["domain_rowgroup_index_root"]))
-            if s.get("domain_rowgroup_index_root")
-            else None
-        ),
+        domain_rowgroup_index_root=(Path(str(s["domain_rowgroup_index_root"])) if s.get("domain_rowgroup_index_root") else None),
         domain_rowgroup_index_batch_size=int(s.get("domain_rowgroup_index_batch_size") or 1),
         max_workers=int(s.get("max_workers") or 8),
         memory_limit_gb=float(_load_pipeline_config_defaults().get("memory_limit_gb") or 10.0),
@@ -335,9 +292,7 @@ def build_pipeline_config(settings: Optional[Dict[str, Any]] = None) -> "object"
     )
 
 
-def validate_collection_status(
-    collection: str, *, settings: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+def validate_collection_status(collection: str, *, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Return orchestrator validator status for a single collection.
 
     This wraps the underlying validator output with a few normalized fields that
@@ -356,11 +311,7 @@ def validate_collection_status(
         status = orch.validator.validate_collection(str(collection))
 
     if not isinstance(status, dict):
-        return {
-            "ok": False,
-            "error": "validator returned non-object",
-            "collection": str(collection),
-        }
+        return {"ok": False, "error": "validator returned non-object", "collection": str(collection)}
 
     coll = str(status.get("collection") or collection)
 
@@ -460,9 +411,7 @@ def _collection_duckdb_files(collection: str, *, duckdb_collection_root: Path) -
     return out
 
 
-def _collection_disk_usage_bytes(
-    collection: str, *, settings: Optional[Dict[str, Any]] = None
-) -> dict[str, int]:
+def _collection_disk_usage_bytes(collection: str, *, settings: Optional[Dict[str, Any]] = None) -> dict[str, int]:
     """Best-effort disk usage for a collection across pipeline artifacts."""
 
     cfg = build_pipeline_config(settings)
@@ -472,12 +421,8 @@ def _collection_disk_usage_bytes(
     duckdb_collection_root = Path(getattr(cfg, "duckdb_collection_root"))
 
     gz_bytes = _safe_sum_file_sizes(_collection_gz_files(collection, ccindex_root=ccindex_root))
-    parquet_bytes = _safe_sum_file_sizes(
-        _collection_parquet_files(collection, parquet_root=parquet_root)
-    )
-    duckdb_bytes = _safe_sum_file_sizes(
-        _collection_duckdb_files(collection, duckdb_collection_root=duckdb_collection_root)
-    )
+    parquet_bytes = _safe_sum_file_sizes(_collection_parquet_files(collection, parquet_root=parquet_root))
+    duckdb_bytes = _safe_sum_file_sizes(_collection_duckdb_files(collection, duckdb_collection_root=duckdb_collection_root))
 
     return {
         "tar_gz_bytes": int(gz_bytes),
@@ -531,17 +476,11 @@ def validate_collections_status(
     return {
         "ok": True,
         "collections": results,
-        "summary": {
-            "total": len(cols),
-            "fully_complete": complete,
-            "size_on_disk_bytes": int(total_bytes),
-        },
+        "summary": {"total": len(cols), "fully_complete": complete, "size_on_disk_bytes": int(total_bytes)},
     }
 
 
-def delete_collection_index(
-    collection: str, *, settings: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+def delete_collection_index(collection: str, *, settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Delete per-collection DuckDB index artifacts so the next run rebuilds."""
 
     cfg = build_pipeline_config(settings)
@@ -683,19 +622,11 @@ def plan_orchestrator_command(
     if eff_filter:
         cmd += ["--filter", str(eff_filter)]
 
-    eff_hb = (
-        int(heartbeat_seconds)
-        if heartbeat_seconds is not None
-        else int(s.get("heartbeat_seconds") or 30)
-    )
+    eff_hb = int(heartbeat_seconds) if heartbeat_seconds is not None else int(s.get("heartbeat_seconds") or 30)
     cmd += ["--heartbeat-seconds", str(eff_hb)]
 
     # Rowgroup-slice index build knobs (can be overridden per run)
-    eff_build_rg = (
-        bool(build_domain_rowgroup_index)
-        if build_domain_rowgroup_index is not None
-        else bool(s.get("build_domain_rowgroup_index", True))
-    )
+    eff_build_rg = bool(build_domain_rowgroup_index) if build_domain_rowgroup_index is not None else bool(s.get("build_domain_rowgroup_index", True))
     if eff_build_rg:
         cmd += ["--build-domain-rowgroup-index"]
     else:
@@ -743,11 +674,7 @@ def plan_orchestrator_command(
     if eff_sort_workers is not None:
         cmd += ["--sort-workers", str(int(eff_sort_workers))]
 
-    eff_sort_mem = (
-        float(sort_memory_per_worker_gb)
-        if sort_memory_per_worker_gb is not None
-        else float(s.get("sort_memory_per_worker_gb") or 4.0)
-    )
+    eff_sort_mem = float(sort_memory_per_worker_gb) if sort_memory_per_worker_gb is not None else float(s.get("sort_memory_per_worker_gb") or 4.0)
     cmd += ["--sort-memory-per-worker-gb", str(eff_sort_mem)]
 
     eff_sort_tmp = sort_temp_dir if sort_temp_dir is not None else s.get("sort_temp_dir")
@@ -771,9 +698,7 @@ def plan_orchestrator_command(
     return {"cmd": cmd}
 
 
-def start_orchestrator_job(
-    *, planned: Dict[str, Any], label: str = "orchestrator"
-) -> OrchestratorJob:
+def start_orchestrator_job(*, planned: Dict[str, Any], label: str = "orchestrator") -> OrchestratorJob:
     cmd = planned.get("cmd")
     if not isinstance(cmd, list) or not all(isinstance(x, str) for x in cmd):
         raise ValueError("planned.cmd must be a list[str]")
@@ -803,15 +728,13 @@ def start_orchestrator_job(
         )
 
     job = OrchestratorJob(pid=int(proc.pid), log_path=str(log_path), cmd=list(cmd))
-    _append_job_record(
-        {
-            "pid": job.pid,
-            "log_path": job.log_path,
-            "cmd": job.cmd,
-            "label": str(label),
-            "started_at": _iso_now(),
-        }
-    )
+    _append_job_record({
+        "pid": job.pid,
+        "log_path": job.log_path,
+        "cmd": job.cmd,
+        "label": str(label),
+        "started_at": _iso_now(),
+    })
     return job
 
 
@@ -835,12 +758,7 @@ def stop_job(pid: int, *, sig: str = "TERM") -> Dict[str, Any]:
     if alive_before:
         os.kill(int(pid), int(signum))
 
-    return {
-        "pid": int(pid),
-        "signal": signame,
-        "alive_before": alive_before,
-        "alive_after": job_is_alive(int(pid)),
-    }
+    return {"pid": int(pid), "signal": signame, "alive_before": alive_before, "alive_after": job_is_alive(int(pid))}
 
 
 def tail_file(path: str, *, lines: int = 200) -> str:
@@ -857,9 +775,7 @@ def tail_file(path: str, *, lines: int = 200) -> str:
         return ""
 
 
-def job_status(
-    *, pid: int | None = None, log_path: str | None = None, lines: int = 200
-) -> Dict[str, Any]:
+def job_status(*, pid: int | None = None, log_path: str | None = None, lines: int = 200) -> Dict[str, Any]:
     lp = str(log_path or "").strip() or None
     p = int(pid) if pid is not None else None
     tail = tail_file(lp, lines=int(lines)) if lp else ""
@@ -869,7 +785,5 @@ def job_status(
         "alive": (job_is_alive(p) if p else None),
         "log_path": lp,
         "tail": tail,
-        "progress": _parse_progress_from_tail(tail)
-        if tail
-        else {"stage": None, "collection": None, "last_line": None},
+        "progress": _parse_progress_from_tail(tail) if tail else {"stage": None, "collection": None, "last_line": None},
     }

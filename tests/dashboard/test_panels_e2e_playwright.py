@@ -223,9 +223,7 @@ def test_search_panel_brave_to_record_e2e(dashboard_real, tmp_path: Path) -> Non
         page.on("pageerror", lambda exc: page_errors.append(str(exc)))
 
         try:
-            page.goto(
-                f"{base_url}/discover?parquet_root={parquet_root}", wait_until="domcontentloaded"
-            )
+            page.goto(f"{base_url}/discover?parquet_root={parquet_root}", wait_until="domcontentloaded")
 
             page.fill("#dq", query)
             page.click("#discoverForm button[type='submit']")
@@ -262,9 +260,7 @@ def test_search_panel_brave_to_record_e2e(dashboard_real, tmp_path: Path) -> Non
 @pytest.mark.integration
 @pytest.mark.skipif(not RUN_PLAYWRIGHT, reason="Set RUN_PLAYWRIGHT=1 to enable")
 @pytest.mark.skipif(not RUN_DASHBOARD_E2E, reason="Set RUN_DASHBOARD_E2E=1 to enable")
-def test_settings_panel_save_and_cache_clear_affects_record_defaults(
-    dashboard_real, tmp_path: Path
-) -> None:
+def test_settings_panel_save_and_cache_clear_affects_record_defaults(dashboard_real, tmp_path: Path) -> None:
     base_url, proc, run_dir, _master_db, parquet_root = dashboard_real
 
     try:

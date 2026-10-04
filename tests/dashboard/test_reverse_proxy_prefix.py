@@ -8,9 +8,7 @@ import pytest
 def test_dashboard_html_respects_forwarded_prefix(monkeypatch: pytest.MonkeyPatch):
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(
-        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
-    )
+    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
 
     try:
         from fastapi.testclient import TestClient
@@ -31,9 +29,7 @@ def test_dashboard_html_respects_forwarded_prefix(monkeypatch: pytest.MonkeyPatc
 def test_forwarded_prefix_strips_path_for_mcp(monkeypatch: pytest.MonkeyPatch):
     from common_crawl_search_engine.dashboard import create_app
 
-    app = create_app(
-        master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")
-    )
+    app = create_app(master_db=Path("/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb"))
 
     try:
         from fastapi.testclient import TestClient

@@ -25,23 +25,23 @@ def extract_domain_mappings_from_parquet(parquet_file: Path, parquet_root: Path)
             rel_path = parquet_file.relative_to(parquet_root).as_posix()
         except:
             rel_path = str(parquet_file)
-
+        
         # Parse collection from path
         parts = parquet_file.parts
         collection = None
         year = None
         for i, part in enumerate(parts):
-            if part.startswith("CC-MAIN-"):
+            if part.startswith('CC-MAIN-'):
                 collection = part
-                year_match = part.split("-")[2]
+                year_match = part.split('-')[2]
                 try:
                     year = int(year_match)
                 except:
                     pass
                 break
-
+        
         shard_file = parquet_file.name
-
+        
         # Read unique host_rev values using DuckDB (faster than pyarrow for aggregation)
         con = duckdb.connect(":memory:")
         domains = con.execute(
@@ -50,26 +50,24 @@ def extract_domain_mappings_from_parquet(parquet_file: Path, parquet_root: Path)
             FROM read_parquet(?)
             WHERE host IS NOT NULL AND host_rev IS NOT NULL
             """,
-            [str(parquet_file)],
+            [str(parquet_file)]
         ).fetchall()
         con.close()
-
+        
         results = []
         for host, host_rev in domains:
-            results.append(
-                (
-                    str(parquet_file),  # source_path
-                    collection,
-                    year,
-                    shard_file,
-                    rel_path,
-                    host,
-                    host_rev,
-                )
-            )
-
+            results.append((
+                str(parquet_file),  # source_path
+                collection,
+                year,
+                shard_file,
+                rel_path,
+                host,
+                host_rev
+            ))
+        
         return results
-
+        
     except Exception as e:
         print(f"Error processing {parquet_file}: {e}", file=sys.stderr)
         return []
@@ -78,97 +76,95 @@ def extract_domain_mappings_from_parquet(parquet_file: Path, parquet_root: Path)
 def extract_rowgroup_ranges(parquet_file: Path, parquet_root: Path) -> List[tuple]:
     """
     Extract row group range metadata.
-    Returns list of (source_path, collection, year, shard_file, parquet_relpath,
+    Returns list of (source_path, collection, year, shard_file, parquet_relpath, 
                      row_group, row_start, row_end, host_rev_min, host_rev_max)
     """
     try:
         pf = pq.ParquetFile(parquet_file)
         md = pf.metadata
-
+        
         if md is None or md.num_row_groups == 0:
             return []
-
+        
         # Get relative path
         try:
             rel_path = parquet_file.relative_to(parquet_root).as_posix()
         except:
             rel_path = str(parquet_file)
-
+        
         # Parse collection
         parts = parquet_file.parts
         collection = None
         year = None
         for part in parts:
-            if part.startswith("CC-MAIN-"):
+            if part.startswith('CC-MAIN-'):
                 collection = part
-                year_match = part.split("-")[2]
+                year_match = part.split('-')[2]
                 try:
                     year = int(year_match)
                 except:
                     pass
                 break
-
+        
         shard_file = parquet_file.name
-
+        
         # Find host_rev column
         host_rev_idx = None
         try:
-            host_rev_idx = list(pf.schema_arrow.names).index("host_rev")
+            host_rev_idx = list(pf.schema_arrow.names).index('host_rev')
         except:
             try:
-                host_rev_idx = list(pf.schema.names).index("host_rev")
+                host_rev_idx = list(pf.schema.names).index('host_rev')
             except:
                 return []
-
+        
         results = []
         row_start = 0
-
+        
         for rg_idx in range(md.num_row_groups):
             rg = md.row_group(rg_idx)
             num_rows = int(rg.num_rows or 0)
             row_end = row_start + num_rows
-
+            
             # Get min/max from statistics
             host_rev_min = None
             host_rev_max = None
-
+            
             if host_rev_idx is not None:
                 try:
                     col = rg.column(host_rev_idx)
-                    stats = getattr(col, "statistics", None)
+                    stats = getattr(col, 'statistics', None)
                     if stats:
-                        mn = getattr(stats, "min", None)
-                        mx = getattr(stats, "max", None)
+                        mn = getattr(stats, 'min', None)
+                        mx = getattr(stats, 'max', None)
                         if isinstance(mn, bytes):
-                            host_rev_min = mn.decode("utf-8", errors="ignore")
+                            host_rev_min = mn.decode('utf-8', errors='ignore')
                         elif mn:
                             host_rev_min = str(mn)
                         if isinstance(mx, bytes):
-                            host_rev_max = mx.decode("utf-8", errors="ignore")
+                            host_rev_max = mx.decode('utf-8', errors='ignore')
                         elif mx:
                             host_rev_max = str(mx)
                 except:
                     pass
-
-            results.append(
-                (
-                    str(parquet_file),  # source_path
-                    collection,
-                    year,
-                    shard_file,
-                    rel_path,
-                    rg_idx,
-                    row_start,
-                    row_end,
-                    host_rev_min,
-                    host_rev_max,
-                )
-            )
-
+            
+            results.append((
+                str(parquet_file),  # source_path
+                collection,
+                year,
+                shard_file,
+                rel_path,
+                rg_idx,
+                row_start,
+                row_end,
+                host_rev_min,
+                host_rev_max
+            ))
+            
             row_start = row_end
-
+        
         return results
-
+        
     except Exception as e:
         print(f"Error extracting row groups from {parquet_file}: {e}", file=sys.stderr)
         return []
@@ -185,12 +181,7 @@ def main() -> int:
         help="Commit every N files (also controls progress cadence)",
     )
     ap.add_argument("--extract-rowgroups", action="store_true", help="Extract row group ranges")
-    ap.add_argument(
-        "--max-files",
-        type=int,
-        default=None,
-        help="Only process up to N parquet files (for testing)",
-    )
+    ap.add_argument("--max-files", type=int, default=None, help="Only process up to N parquet files (for testing)")
     ap.add_argument(
         "--db-lock-retries",
         type=int,
@@ -204,15 +195,15 @@ def main() -> int:
         help="Sleep between DuckDB lock retries (default: 2.0)",
     )
     args = ap.parse_args()
-
+    
     parquet_root = Path(args.parquet_root).expanduser().resolve()
     output_db = Path(args.output_db).expanduser().resolve()
-
+    
     print(f"Parquet root: {parquet_root}")
     print(f"Output DB:    {output_db}")
     print(f"Batch size:   {args.batch_size}")
     print()
-
+    
     # Find all parquet files (files only) and ignore hidden/temp directories.
     # Some stages create temporary work dirs; we don't want to treat directories
     # as Parquet inputs or accidentally index scratch artifacts.
@@ -239,10 +230,10 @@ def main() -> int:
 
     print(f"Found {len(all_files)} parquet files")
     print()
-
+    
     # Create output directory
     output_db.parent.mkdir(parents=True, exist_ok=True)
-
+    
     # Connect to output database
     con = None
     retries = max(0, int(args.db_lock_retries or 0))
@@ -256,22 +247,21 @@ def main() -> int:
             is_lock = (
                 "Conflicting lock is held" in msg
                 or "Could not set lock on file" in msg
-                or "lock" in msg.lower()
-                and "conflicting" in msg.lower()
+                or "lock" in msg.lower() and "conflicting" in msg.lower()
             )
             if (not is_lock) or (attempt >= retries):
                 raise
             waited = (attempt + 1) * sleep_s
             print(
                 f"DuckDB file is locked ({output_db}); retrying in {sleep_s:.1f}s "
-                f"({attempt + 1}/{retries})...",
+                f"({attempt+1}/{retries})...",
                 file=sys.stderr,
                 flush=True,
             )
             time.sleep(sleep_s)
 
     assert con is not None
-
+    
     # Create tables
     con.execute("""
         CREATE TABLE IF NOT EXISTS cc_domain_shards (
@@ -284,7 +274,7 @@ def main() -> int:
             host_rev VARCHAR
         )
     """)
-
+    
     if args.extract_rowgroups:
         con.execute("""
             CREATE TABLE IF NOT EXISTS cc_parquet_rowgroups (
@@ -318,9 +308,7 @@ def main() -> int:
     # stays correct across incremental reruns.
     try:
         target_paths = [str(p) for p in all_files]
-        con.execute(
-            "CREATE TEMP TABLE IF NOT EXISTS cc_target_parquet_files (parquet_path VARCHAR PRIMARY KEY)"
-        )
+        con.execute("CREATE TEMP TABLE IF NOT EXISTS cc_target_parquet_files (parquet_path VARCHAR PRIMARY KEY)")
         con.execute("DELETE FROM cc_target_parquet_files")
         if target_paths:
             con.executemany(
@@ -336,9 +324,7 @@ def main() -> int:
             """
         ).fetchone()[0]
         if int(stale_count or 0) > 0:
-            print(
-                f"Pruning {int(stale_count):,} stale indexed parquet file(s) (no longer present under parquet-root)"
-            )
+            print(f"Pruning {int(stale_count):,} stale indexed parquet file(s) (no longer present under parquet-root)")
             con.execute(
                 """
                 DELETE FROM cc_domain_shards
@@ -398,10 +384,10 @@ def main() -> int:
         collection = None
         year = None
         for part in pq_file.parts:
-            if part.startswith("CC-MAIN-"):
+            if part.startswith('CC-MAIN-'):
                 collection = part
                 try:
-                    year = int(part.split("-")[2])
+                    year = int(part.split('-')[2])
                 except Exception:
                     year = None
                 break
@@ -469,24 +455,18 @@ def main() -> int:
 
     con.commit()
     print(f"Processed files: {did_files:,} (skipped unchanged: {skipped_files:,})")
-
+    
     # Create indexes
     print("Creating indexes...")
-    con.execute(
-        "CREATE INDEX IF NOT EXISTS idx_domain_shards_host_rev ON cc_domain_shards(host_rev)"
-    )
+    con.execute("CREATE INDEX IF NOT EXISTS idx_domain_shards_host_rev ON cc_domain_shards(host_rev)")
     con.execute("CREATE INDEX IF NOT EXISTS idx_domain_shards_host ON cc_domain_shards(host)")
-
+    
     if args.extract_rowgroups:
-        con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_rowgroups_host_rev_min ON cc_parquet_rowgroups(host_rev_min)"
-        )
-        con.execute(
-            "CREATE INDEX IF NOT EXISTS idx_rowgroups_host_rev_max ON cc_parquet_rowgroups(host_rev_max)"
-        )
-
+        con.execute("CREATE INDEX IF NOT EXISTS idx_rowgroups_host_rev_min ON cc_parquet_rowgroups(host_rev_min)")
+        con.execute("CREATE INDEX IF NOT EXISTS idx_rowgroups_host_rev_max ON cc_parquet_rowgroups(host_rev_max)")
+    
     con.close()
-
+    
     print()
     print("=" * 80)
     print("COMPLETE")
@@ -496,7 +476,7 @@ def main() -> int:
         print(f"Total row group ranges: {total_rowgroups:,}")
     print(f"Output: {output_db}")
     print(f"Size: {output_db.stat().st_size / (1024**3):.2f} GB")
-
+    
     return 0
 
 

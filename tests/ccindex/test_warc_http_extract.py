@@ -40,7 +40,8 @@ def test_extract_http_chunked_decodes() -> None:
         b"HTTP/1.1 200 OK\r\n"
         b"Content-Type: text/plain; charset=utf-8\r\n"
         b"Transfer-Encoding: chunked\r\n"
-        b"\r\n" + body_chunked
+        b"\r\n"
+        + body_chunked
     )
     gz = _make_warc_gz_member(http)
 

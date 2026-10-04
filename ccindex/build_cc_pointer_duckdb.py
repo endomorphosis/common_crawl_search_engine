@@ -236,9 +236,7 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _iter_index_files(
-    input_root: Path, collections: Optional[Sequence[str]] = None
-) -> Iterator[Path]:
+def _iter_index_files(input_root: Path, collections: Optional[Sequence[str]] = None) -> Iterator[Path]:
     if collections:
         for c in collections:
             col_dir = input_root / str(c)
@@ -301,9 +299,7 @@ def _to_int(x: Any) -> Optional[int]:
         return None
 
 
-def _parse_cdxj_line(
-    line: str,
-) -> Optional[Tuple[str, Optional[str], Optional[str], Dict[str, Any]]]:
+def _parse_cdxj_line(line: str) -> Optional[Tuple[str, Optional[str], Optional[str], Dict[str, Any]]]:
     """Return (surt, timestamp, url, meta)."""
     line = line.strip()
     if not line or line.startswith("#"):
@@ -341,9 +337,7 @@ def _parse_cdxj_line(
     return surt, ts, url, meta
 
 
-def _connect(
-    db_path: Path, threads: int, *, memory_limit_gib: Optional[float] = None
-) -> duckdb.DuckDBPyConnection:
+def _connect(db_path: Path, threads: int, *, memory_limit_gib: Optional[float] = None) -> duckdb.DuckDBPyConnection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = duckdb.connect(str(db_path))
     con.execute(f"PRAGMA threads={max(1, int(threads))}")
@@ -427,9 +421,7 @@ def _init_schema(con: duckdb.DuckDBPyConnection, *, duckdb_index_mode: str) -> N
     )
 
 
-def _already_ingested(
-    con: duckdb.DuckDBPyConnection, path: str, size_bytes: int, mtime_ns: int
-) -> bool:
+def _already_ingested(con: duckdb.DuckDBPyConnection, path: str, size_bytes: int, mtime_ns: int) -> bool:
     row = con.execute(
         """
         SELECT 1
@@ -442,9 +434,7 @@ def _already_ingested(
     return row is not None
 
 
-def _record_ingested(
-    con: duckdb.DuckDBPyConnection, path: str, size_bytes: int, mtime_ns: int, rows: int
-) -> None:
+def _record_ingested(con: duckdb.DuckDBPyConnection, path: str, size_bytes: int, mtime_ns: int, rows: int) -> None:
     con.execute(
         """
         INSERT OR REPLACE INTO cc_ingested_files(path, size_bytes, mtime_ns, ingested_at, rows)
@@ -615,9 +605,7 @@ def _decode_stat(v: Any) -> Optional[str]:
         return None
 
 
-def _extract_parquet_rowgroup_host_rev_ranges(
-    parquet_path: Path,
-) -> List[Tuple[int, int, int, Optional[str], Optional[str]]]:
+def _extract_parquet_rowgroup_host_rev_ranges(parquet_path: Path) -> List[Tuple[int, int, int, Optional[str], Optional[str]]]:
     """Return per-row-group (rg_idx, row_start, row_end, host_rev_min, host_rev_max)."""
     pf = pq.ParquetFile(parquet_path)
     md = pf.metadata
@@ -727,9 +715,7 @@ def _maybe_create_domain_indexes(con: duckdb.DuckDBPyConnection) -> None:
             pass
 
 
-def _parquet_relpath(
-    parquet_root: Optional[Path], year: Optional[int], collection: str, shard_file: str
-) -> Optional[str]:
+def _parquet_relpath(parquet_root: Optional[Path], year: Optional[int], collection: str, shard_file: str) -> Optional[str]:
     if parquet_root is None or year is None:
         return None
     p = _parquet_out_path(parquet_root, int(year), collection, shard_file)
@@ -741,12 +727,7 @@ def _parquet_relpath(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument(
-        "--input-root",
-        required=True,
-        type=str,
-        help="Root folder containing CC shards (e.g. /storage/ccindex)",
-    )
+    ap.add_argument("--input-root", required=True, type=str, help="Root folder containing CC shards (e.g. /storage/ccindex)")
     ap.add_argument(
         "--db",
         required=True,
@@ -771,24 +752,9 @@ def main() -> int:
         default=None,
         help="Ingest only these collections (repeatable). Avoids scanning all of --input-root.",
     )
-    ap.add_argument(
-        "--collections-regex",
-        type=str,
-        default=None,
-        help="Only ingest collections matching this regex",
-    )
-    ap.add_argument(
-        "--max-files",
-        type=int,
-        default=None,
-        help="Cap number of shard files ingested (for testing)",
-    )
-    ap.add_argument(
-        "--max-lines-per-file",
-        type=int,
-        default=None,
-        help="Cap lines read per shard file (for testing)",
-    )
+    ap.add_argument("--collections-regex", type=str, default=None, help="Only ingest collections matching this regex")
+    ap.add_argument("--max-files", type=int, default=None, help="Cap number of shard files ingested (for testing)")
+    ap.add_argument("--max-lines-per-file", type=int, default=None, help="Cap lines read per shard file (for testing)")
     ap.add_argument("--batch-rows", type=int, default=200_000, help="Rows per insert batch")
     ap.add_argument("--threads", type=int, default=os.cpu_count() or 8, help="DuckDB threads")
     ap.add_argument(
@@ -809,12 +775,7 @@ def main() -> int:
         default=None,
         help="Remainder for --cdx-shard-mod partitioning",
     )
-    ap.add_argument(
-        "--create-indexes",
-        action="store_true",
-        default=False,
-        help="Attempt to create helpful indexes",
-    )
+    ap.add_argument("--create-indexes", action="store_true", default=False, help="Attempt to create helpful indexes")
     ap.add_argument(
         "--duckdb-index-mode",
         type=str,
@@ -950,9 +911,7 @@ def main() -> int:
             else db_target.expanduser().resolve().parent
         )
 
-    def maybe_write_progress(
-        shard_key: str, *, force: bool = False, note: Optional[str] = None
-    ) -> None:
+    def maybe_write_progress(shard_key: str, *, force: bool = False, note: Optional[str] = None) -> None:
         if progress_dir is None:
             return
         now = time.time()
@@ -979,9 +938,7 @@ def main() -> int:
             if not db_target.is_dir():
                 raise SystemExit("--db must be a directory when using --shard-by-year")
             if year is None:
-                raise SystemExit(
-                    "Could not determine collection year; use --collections-regex to filter"
-                )
+                raise SystemExit("Could not determine collection year; use --collections-regex to filter")
             return db_target / f"cc_pointers_{int(year)}{part_suffix}.duckdb"
         if bool(args.shard_by_collection):
             if not db_target.exists():
@@ -1036,9 +993,7 @@ def main() -> int:
         try:
             row_files = con.execute("SELECT count(*) FROM cc_ingested_files").fetchone()
             ing_files = (row_files[0] if row_files and row_files[0] is not None else 0) or 0
-            row_rows = con.execute(
-                "SELECT COALESCE(sum(rows), 0) FROM cc_ingested_files"
-            ).fetchone()
+            row_rows = con.execute("SELECT COALESCE(sum(rows), 0) FROM cc_ingested_files").fetchone()
             ing_rows = (row_rows[0] if row_rows and row_rows[0] is not None else 0) or 0
             totals_by_shard[shard_key]["ingested_files"] = int(ing_files)
             totals_by_shard[shard_key]["ingested_rows"] = int(ing_rows)
@@ -1084,11 +1039,7 @@ def main() -> int:
     total_rows_ingested = 0
 
     parquet_root = Path(args.parquet_out).expanduser().resolve() if args.parquet_out else None
-    resume_require_parquet = (
-        bool(parquet_root)
-        if args.resume_require_parquet is None
-        else bool(args.resume_require_parquet)
-    )
+    resume_require_parquet = bool(parquet_root) if args.resume_require_parquet is None else bool(args.resume_require_parquet)
     parquet_action = str(args.parquet_action)
     parquet_validate = str(args.parquet_validate)
 
@@ -1125,9 +1076,7 @@ def main() -> int:
         if resume_require_parquet and parquet_final is not None:
             try:
                 if parquet_validate == "quick":
-                    parquet_ok = _parquet_is_complete(
-                        parquet_final, expected_cols=_EXPECTED_POINTER_PARQUET_COLS
-                    )
+                    parquet_ok = _parquet_is_complete(parquet_final, expected_cols=_EXPECTED_POINTER_PARQUET_COLS)
                 else:
                     parquet_ok = parquet_final.exists() and parquet_final.stat().st_size > 0
             except Exception:
@@ -1138,17 +1087,13 @@ def main() -> int:
         if parquet_final is not None:
             try:
                 if parquet_validate == "quick":
-                    parquet_exists_ok = _parquet_is_complete(
-                        parquet_final, expected_cols=_EXPECTED_POINTER_PARQUET_COLS
-                    )
+                    parquet_exists_ok = _parquet_is_complete(parquet_final, expected_cols=_EXPECTED_POINTER_PARQUET_COLS)
                 else:
                     parquet_exists_ok = parquet_final.exists() and parquet_final.stat().st_size > 0
             except Exception:
                 parquet_exists_ok = False
 
-        domain_rebuild = (
-            str(args.duckdb_index_mode) == "domain" and str(args.domain_index_action) == "rebuild"
-        )
+        domain_rebuild = str(args.duckdb_index_mode) == "domain" and str(args.domain_index_action) == "rebuild"
 
         # If already ingested and (if enabled) Parquet exists, skip.
         # Exception: domain rebuild wants to recompute cc_domain_shards even for already-ingested shards.
@@ -1175,9 +1120,7 @@ def main() -> int:
                     pass
             continue
 
-        domain_rebuild_only = (
-            domain_rebuild and already and (not resume_require_parquet or parquet_ok)
-        )
+        domain_rebuild_only = domain_rebuild and already and (not resume_require_parquet or parquet_ok)
 
         # In URL mode, if we are reprocessing only because the Parquet output is missing,
         # do NOT re-insert into DuckDB (would duplicate cc_pointers rows).
@@ -1208,11 +1151,7 @@ def main() -> int:
                 write_parquet = False
             elif parquet_action == "skip-if-exists" and parquet_exists_ok:
                 write_parquet = False
-        write_duckdb_rows = (
-            (str(args.duckdb_index_mode) == "url")
-            and (not domain_rebuild_only)
-            and (not parquet_rebuild_only)
-        )
+        write_duckdb_rows = (str(args.duckdb_index_mode) == "url") and (not domain_rebuild_only) and (not parquet_rebuild_only)
 
         if write_parquet and parquet_tmp is not None:
             # Ensure we don't keep a stale tmp from a prior interrupted run.
@@ -1228,9 +1167,7 @@ def main() -> int:
         try:
             with gzip.open(shard_path, "rt", encoding="utf-8", errors="ignore") as f:
                 for line_no, line in enumerate(f, 1):
-                    if args.max_lines_per_file is not None and line_no > int(
-                        args.max_lines_per_file
-                    ):
+                    if args.max_lines_per_file is not None and line_no > int(args.max_lines_per_file):
                         break
 
                     parsed = _parse_cdxj_line(line)
@@ -1249,9 +1186,9 @@ def main() -> int:
                         domain_map.setdefault(host_rev, host)
 
                     status = _to_int(meta.get("status")) if isinstance(meta, dict) else None
-                    mime = meta.get("mime") if isinstance(meta, dict) else None
-                    digest = meta.get("digest") if isinstance(meta, dict) else None
-                    warc_filename = meta.get("filename") if isinstance(meta, dict) else None
+                    mime = (meta.get("mime") if isinstance(meta, dict) else None)
+                    digest = (meta.get("digest") if isinstance(meta, dict) else None)
+                    warc_filename = (meta.get("filename") if isinstance(meta, dict) else None)
                     warc_offset = _to_int(meta.get("offset")) if isinstance(meta, dict) else None
                     warc_length = _to_int(meta.get("length")) if isinstance(meta, dict) else None
 
@@ -1360,9 +1297,7 @@ def main() -> int:
                     bool(args.domain_range_index)
                     and parquet_final is not None
                     and parquet_final.exists()
-                    and _parquet_is_complete(
-                        parquet_final, expected_cols=_EXPECTED_POINTER_PARQUET_COLS
-                    )
+                    and _parquet_is_complete(parquet_final, expected_cols=_EXPECTED_POINTER_PARQUET_COLS)
                 ):
                     _rebuild_cc_parquet_rowgroups_for_shard(
                         con,
@@ -1378,12 +1313,8 @@ def main() -> int:
                 _record_ingested(con, path_str, st.st_size, st.st_mtime_ns, file_rows)
                 total_files_ingested += 1
 
-                totals_by_shard[shard_key]["ingested_files"] = (
-                    int(totals_by_shard[shard_key].get("ingested_files", 0)) + 1
-                )
-                totals_by_shard[shard_key]["ingested_rows"] = int(
-                    totals_by_shard[shard_key].get("ingested_rows", 0)
-                ) + int(file_rows)
+                totals_by_shard[shard_key]["ingested_files"] = int(totals_by_shard[shard_key].get("ingested_files", 0)) + 1
+                totals_by_shard[shard_key]["ingested_rows"] = int(totals_by_shard[shard_key].get("ingested_rows", 0)) + int(file_rows)
                 totals_by_shard[shard_key]["last_event"] = "ingested"
                 maybe_write_progress(shard_key)
 
@@ -1391,13 +1322,9 @@ def main() -> int:
 
             dt = time.perf_counter() - t0
             if bool(args.shard_by_year):
-                print(
-                    f"[{idx}/{len(files)}] ingested {collection}/{shard_file} -> {year}: rows={file_rows:,} in {dt:.1f}s"
-                )
+                print(f"[{idx}/{len(files)}] ingested {collection}/{shard_file} -> {year}: rows={file_rows:,} in {dt:.1f}s")
             else:
-                print(
-                    f"[{idx}/{len(files)}] ingested {collection}/{shard_file}: rows={file_rows:,} in {dt:.1f}s"
-                )
+                print(f"[{idx}/{len(files)}] ingested {collection}/{shard_file}: rows={file_rows:,} in {dt:.1f}s")
 
         except KeyboardInterrupt:
             print(f"[{idx}/{len(files)}] INTERRUPTED {collection}/{shard_file}: cleaning up")

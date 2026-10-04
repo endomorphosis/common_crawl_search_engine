@@ -118,7 +118,9 @@ def _row_group_compressed_bytes(rg: pq.RowGroupMetaData) -> Optional[int]:
         return None
 
 
-def _host_rev_min_max_stats(pf: pq.ParquetFile) -> Optional[List[Tuple[Optional[str], Optional[str]]]]:
+def _host_rev_min_max_stats(
+    pf: pq.ParquetFile,
+) -> Optional[List[Tuple[Optional[str], Optional[str]]]]:
     """Return per-rowgroup (min,max) statistics for host_rev if present.
 
     If any row group lacks stats, returns None.
@@ -167,7 +169,9 @@ def _host_rev_min_max_stats(pf: pq.ParquetFile) -> Optional[List[Tuple[Optional[
         return None
 
 
-def _sorted_stats_signal(host_rev_stats: List[Tuple[Optional[str], Optional[str]]]) -> Tuple[Optional[bool], str]:
+def _sorted_stats_signal(
+    host_rev_stats: List[Tuple[Optional[str], Optional[str]]],
+) -> Tuple[Optional[bool], str]:
     """Cheap sortedness signal using row-group min/max stats.
 
     If for every adjacent row group i->i+1 we have max_i <= min_{i+1}, we consider
@@ -183,7 +187,7 @@ def _sorted_stats_signal(host_rev_stats: List[Tuple[Optional[str], Optional[str]
         if max_i is None or min_j is None:
             return None, "stats_missing_values"
         if str(max_i) > str(min_j):
-            return False, f"boundary_violation_rg{i}_to_rg{i+1}"
+            return False, f"boundary_violation_rg{i}_to_rg{i + 1}"
 
     return True, "boundary_ok"
 
@@ -304,8 +308,7 @@ def _iter_parquet_files(parquet_root: Path) -> Iterable[Path]:
         # These often contain zero-byte or partial parquet temp files.
         parts = p.parts
         if any(
-            part.startswith(".cc_sort_work_")
-            or part in {".duckdb_sort_tmp", ".duckdb"}
+            part.startswith(".cc_sort_work_") or part in {".duckdb_sort_tmp", ".duckdb"}
             for part in parts
         ):
             continue
@@ -405,8 +408,12 @@ def audit_one(path: Path, cfg: AuditConfig) -> Dict[str, Any]:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Audit parquet shards for codec/sort/rowgroup/schema issues")
-    ap.add_argument("--parquet-root", required=True, type=Path, help="Root containing parquet shards")
+    ap = argparse.ArgumentParser(
+        description="Audit parquet shards for codec/sort/rowgroup/schema issues"
+    )
+    ap.add_argument(
+        "--parquet-root", required=True, type=Path, help="Root containing parquet shards"
+    )
     ap.add_argument(
         "--state-db",
         type=Path,
@@ -593,12 +600,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         "needs_action_files": needs_action_files,
     }
 
-    args.summary_json.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.summary_json.write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
     print("=" * 80)
     print("AUDIT COMPLETE")
     print("=" * 80)
-    print(f"seen={seen} audited={audited} skipped_fresh={skipped} errors={errors} needs_action={len(needs_action_files)}")
+    print(
+        f"seen={seen} audited={audited} skipped_fresh={skipped} errors={errors} needs_action={len(needs_action_files)}"
+    )
     print(f"summary_json={args.summary_json}")
     return 0
 

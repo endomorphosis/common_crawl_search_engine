@@ -106,7 +106,10 @@ python build_year_meta_indexes.py --year 2024
 ```python
 import duckdb
 
-conn = duckdb.connect('/storage/ccindex_duckdb/cc_domain_by_collection/cc_pointers_CC-MAIN-2024-10.duckdb', read_only=True)
+conn = duckdb.connect(
+    "/storage/ccindex_duckdb/cc_domain_by_collection/cc_pointers_CC-MAIN-2024-10.duckdb",
+    read_only=True,
+)
 
 # Find all entries for a domain
 results = conn.execute("""
@@ -122,7 +125,9 @@ conn.close()
 ```python
 import duckdb
 
-conn = duckdb.connect('/storage/ccindex_duckdb/cc_domain_by_year/cc_pointers_2024.duckdb', read_only=True)
+conn = duckdb.connect(
+    "/storage/ccindex_duckdb/cc_domain_by_year/cc_pointers_2024.duckdb", read_only=True
+)
 
 # Get list of collections
 collections = conn.execute("SELECT * FROM collection_registry").fetchall()

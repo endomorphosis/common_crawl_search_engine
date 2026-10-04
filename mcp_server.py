@@ -36,63 +36,62 @@ def _maybe_path(p: Optional[str]) -> Optional[Path]:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Run MCP server in stdio or TCP/IP mode.
-    
+
     Args:
         argv: Command line arguments (defaults to sys.argv[1:])
-    
+
     Returns:
         Exit code (0 for success)
     """
     parser = argparse.ArgumentParser(
         description="MCP server for Common Crawl Search Engine",
-        epilog="For TCP/IP mode with web dashboard, use: ccindex-dashboard --host HOST --port PORT"
+        epilog="For TCP/IP mode with web dashboard, use: ccindex-dashboard --host HOST --port PORT",
     )
     parser.add_argument(
         "--mode",
         choices=["stdio", "tcp"],
         default="stdio",
-        help="Server mode: stdio (default) for pipe-based communication, tcp for network server"
+        help="Server mode: stdio (default) for pipe-based communication, tcp for network server",
     )
     parser.add_argument(
-        "--host",
-        default="127.0.0.1",
-        help="Host to bind to in TCP mode (default: 127.0.0.1)"
+        "--host", default="127.0.0.1", help="Host to bind to in TCP mode (default: 127.0.0.1)"
     )
     parser.add_argument(
-        "--port",
-        type=int,
-        default=8787,
-        help="Port to bind to in TCP mode (default: 8787)"
+        "--port", type=int, default=8787, help="Port to bind to in TCP mode (default: 8787)"
     )
     parser.add_argument(
         "--master-db",
         type=Path,
-        default=Path(os.environ.get("CCINDEX_MASTER_DB", "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb")),
-        help="Master meta-index DuckDB path (default: /storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb or $CCINDEX_MASTER_DB)"
+        default=Path(
+            os.environ.get(
+                "CCINDEX_MASTER_DB",
+                "/storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb",
+            )
+        ),
+        help="Master meta-index DuckDB path (default: /storage/ccindex_duckdb/cc_pointers_master/cc_master_index.duckdb or $CCINDEX_MASTER_DB)",
     )
-    
+
     args = parser.parse_args(argv)
-    
+
     _ensure_default_search_env()
-    
+
     # TCP mode delegates to the dashboard which provides MCP over HTTP JSON-RPC
     if args.mode == "tcp":
         sys.stderr.write("Starting MCP server in TCP/IP mode (HTTP JSON-RPC)...\n")
         sys.stderr.write(f"Server will be available at http://{args.host}:{args.port}/mcp\n")
         sys.stderr.write("Note: This mode provides full dashboard UI + MCP JSON-RPC endpoint\n")
         from common_crawl_search_engine.dashboard import main as dashboard_main
-        return dashboard_main([
-            "--host", str(args.host),
-            "--port", str(args.port),
-            "--master-db", str(args.master_db)
-        ])
-    
+
+        return dashboard_main(
+            ["--host", str(args.host), "--port", str(args.port), "--master-db", str(args.master_db)]
+        )
+
     # Default stdio mode using FastMCP
     try:
         from mcp.server.fastmcp import FastMCP  # type: ignore
     except Exception as e:  # pragma: no cover
         raise SystemExit(
-            "Missing MCP dependency. Install with: pip install -e '.[mcp]'\n" f"Import error: {e}"
+            f"Missing MCP dependency. Install with: pip install -e '.[mcp]'\nImport error: {e}"
         )
 
     mcp = FastMCP("ccindex")
@@ -105,7 +104,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ) -> List[Dict[str, Any]]:
         """List collections registered in the meta-index layer."""
 
-        cols = api.list_collections(master_db=_maybe_path(master_db), year_db=_maybe_path(year_db), year=year)
+        cols = api.list_collections(
+            master_db=_maybe_path(master_db), year_db=_maybe_path(year_db), year=year
+        )
         return [
             {
                 "year": c.year,
@@ -150,7 +151,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
         dom = api.normalize_domain(domain)
         host_rev = api.host_to_rev(dom)
-        relpaths = api.parquet_relpaths_for_domain(Path(collection_db).expanduser().resolve(), host_rev)
+        relpaths = api.parquet_relpaths_for_domain(
+            Path(collection_db).expanduser().resolve(), host_rev
+        )
         return {"domain": dom, "host_rev_prefix": host_rev, "parquet_relpaths": relpaths}
 
     @mcp.tool()
@@ -177,7 +180,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             decode_gzip_text=bool(decode_gzip_text),
             max_preview_chars=int(max_preview_chars),
             cache_mode=str(cache_mode),
-            full_warc_cache_dir=Path(full_warc_cache_dir).expanduser().resolve() if full_warc_cache_dir else None,
+            full_warc_cache_dir=Path(full_warc_cache_dir).expanduser().resolve()
+            if full_warc_cache_dir
+            else None,
             full_warc_max_bytes=int(full_warc_max_bytes),
         )
         out: Dict[str, Any] = {

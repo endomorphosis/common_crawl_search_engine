@@ -191,7 +191,11 @@ def _build_cmd(
         cmd += ["--parquet-out", str(parquet_out)]
 
         if resume_require_parquet is not None:
-            cmd += ["--resume-require-parquet" if bool(resume_require_parquet) else "--no-resume-require-parquet"]
+            cmd += [
+                "--resume-require-parquet"
+                if bool(resume_require_parquet)
+                else "--no-resume-require-parquet"
+            ]
 
     if progress_dir is not None:
         cmd += ["--progress-dir", str(progress_dir)]
@@ -244,10 +248,30 @@ def main() -> int:
         pass
 
     ap = argparse.ArgumentParser(description="Queue-based per-collection pointer-index builder")
-    ap.add_argument("--input-root", required=True, type=str, help="Root folder containing CC shards (e.g. /storage/ccindex)")
-    ap.add_argument("--db-dir", required=True, type=str, help="Directory for cc_pointers_<collection>.duckdb outputs")
-    ap.add_argument("--parquet-out", type=str, default=None, help="Parquet output root (one Parquet per shard file)")
-    ap.add_argument("--collections-regex", type=str, default=None, help="Regex to select collections under --input-root")
+    ap.add_argument(
+        "--input-root",
+        required=True,
+        type=str,
+        help="Root folder containing CC shards (e.g. /storage/ccindex)",
+    )
+    ap.add_argument(
+        "--db-dir",
+        required=True,
+        type=str,
+        help="Directory for cc_pointers_<collection>.duckdb outputs",
+    )
+    ap.add_argument(
+        "--parquet-out",
+        type=str,
+        default=None,
+        help="Parquet output root (one Parquet per shard file)",
+    )
+    ap.add_argument(
+        "--collections-regex",
+        type=str,
+        default=None,
+        help="Regex to select collections under --input-root",
+    )
     ap.add_argument(
         "--collections",
         action="append",
@@ -263,15 +287,36 @@ def main() -> int:
     )
 
     ap.add_argument("--max-parallel", type=int, default=8, help="Max concurrent collections")
-    ap.add_argument("--threads-per-worker", type=int, default=2, help="DuckDB threads per build process")
-    ap.add_argument("--batch-rows", type=int, default=None, help="Rows per insert batch (passed through)")
-    ap.add_argument("--memory-limit-gib", type=float, default=None, help="DuckDB memory_limit per process (GiB)")
+    ap.add_argument(
+        "--threads-per-worker", type=int, default=2, help="DuckDB threads per build process"
+    )
+    ap.add_argument(
+        "--batch-rows", type=int, default=None, help="Rows per insert batch (passed through)"
+    )
+    ap.add_argument(
+        "--memory-limit-gib", type=float, default=None, help="DuckDB memory_limit per process (GiB)"
+    )
 
-    ap.add_argument("--progress-dir", type=str, default=None, help="Progress snapshot dir (passed through)")
-    ap.add_argument("--progress-interval-seconds", type=int, default=30, help="Snapshot interval (passed through)")
+    ap.add_argument(
+        "--progress-dir", type=str, default=None, help="Progress snapshot dir (passed through)"
+    )
+    ap.add_argument(
+        "--progress-interval-seconds",
+        type=int,
+        default=30,
+        help="Snapshot interval (passed through)",
+    )
 
-    ap.add_argument("--parquet-compression", type=str, default="zstd", choices=["zstd", "snappy", "gzip"], help="Parquet compression")
-    ap.add_argument("--parquet-compression-level", type=int, default=None, help="Parquet compression level")
+    ap.add_argument(
+        "--parquet-compression",
+        type=str,
+        default="zstd",
+        choices=["zstd", "snappy", "gzip"],
+        help="Parquet compression",
+    )
+    ap.add_argument(
+        "--parquet-compression-level", type=int, default=None, help="Parquet compression level"
+    )
     ap.add_argument(
         "--parquet-sort",
         type=str,
@@ -321,17 +366,46 @@ def main() -> int:
         help="When --parquet-out is set, only skip an already-ingested shard if its Parquet file exists (default: true)",
     )
 
-    ap.add_argument("--python", type=str, default=None, help="Python executable to run builder with (default: current interpreter)")
-    ap.add_argument("--log-dir", type=str, default=None, help="Where to write per-collection logs (default: --db-dir)")
-    ap.add_argument("--state-file", type=str, default=None, help="Path to JSON state (default: <db-dir>/queue_state.json)")
+    ap.add_argument(
+        "--python",
+        type=str,
+        default=None,
+        help="Python executable to run builder with (default: current interpreter)",
+    )
+    ap.add_argument(
+        "--log-dir",
+        type=str,
+        default=None,
+        help="Where to write per-collection logs (default: --db-dir)",
+    )
+    ap.add_argument(
+        "--state-file",
+        type=str,
+        default=None,
+        help="Path to JSON state (default: <db-dir>/queue_state.json)",
+    )
 
-    ap.add_argument("--min-mem-to-start-gib", type=float, default=0.0, help="Only start new workers if MemAvailable >= this")
+    ap.add_argument(
+        "--min-mem-to-start-gib",
+        type=float,
+        default=0.0,
+        help="Only start new workers if MemAvailable >= this",
+    )
     ap.add_argument("--poll-interval", type=int, default=5, help="Seconds between scheduler ticks")
 
-    ap.add_argument("--max-attempts", type=int, default=5, help="Max attempts per collection before giving up")
-    ap.add_argument("--retry-backoff-seconds", type=int, default=60, help="Base backoff for retrying failed collections")
+    ap.add_argument(
+        "--max-attempts", type=int, default=5, help="Max attempts per collection before giving up"
+    )
+    ap.add_argument(
+        "--retry-backoff-seconds",
+        type=int,
+        default=60,
+        help="Base backoff for retrying failed collections",
+    )
 
-    ap.add_argument("--stop-grace-seconds", type=int, default=30, help="Grace period when stopping on SIGINT")
+    ap.add_argument(
+        "--stop-grace-seconds", type=int, default=30, help="Grace period when stopping on SIGINT"
+    )
     ap.add_argument("--dry-run", action="store_true", default=False, help="Print plan and exit")
 
     args = ap.parse_args()
@@ -346,7 +420,11 @@ def main() -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     progress_dir.mkdir(parents=True, exist_ok=True)
 
-    python_exe = _abspath_preserve_symlinks(Path(args.python)) if args.python else _abspath_preserve_symlinks(Path(sys.executable))
+    python_exe = (
+        _abspath_preserve_symlinks(Path(args.python))
+        if args.python
+        else _abspath_preserve_symlinks(Path(sys.executable))
+    )
     build_script = (Path(__file__).parent / "build_cc_pointer_duckdb.py").resolve()
     if not build_script.exists():
         raise SystemExit(f"Missing build script: {build_script}")
@@ -368,7 +446,11 @@ def main() -> int:
 
     max_parallel = max(1, int(args.max_parallel))
 
-    state_path = Path(args.state_file).expanduser().resolve() if args.state_file else (db_dir / "queue_state.json")
+    state_path = (
+        Path(args.state_file).expanduser().resolve()
+        if args.state_file
+        else (db_dir / "queue_state.json")
+    )
 
     # State: per collection attempts + next eligible time.
     attempts: Dict[str, int] = {}
@@ -379,9 +461,21 @@ def main() -> int:
         try:
             data = json.loads(state_path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                attempts = {str(k): int(v) for k, v in (data.get("attempts") or {}).items()} if isinstance(data.get("attempts"), dict) else {}
-                next_ok = {str(k): float(v) for k, v in (data.get("next_ok") or {}).items()} if isinstance(data.get("next_ok"), dict) else {}
-                completed = {str(k): bool(v) for k, v in (data.get("completed") or {}).items()} if isinstance(data.get("completed"), dict) else {}
+                attempts = (
+                    {str(k): int(v) for k, v in (data.get("attempts") or {}).items()}
+                    if isinstance(data.get("attempts"), dict)
+                    else {}
+                )
+                next_ok = (
+                    {str(k): float(v) for k, v in (data.get("next_ok") or {}).items()}
+                    if isinstance(data.get("next_ok"), dict)
+                    else {}
+                )
+                completed = (
+                    {str(k): bool(v) for k, v in (data.get("completed") or {}).items()}
+                    if isinstance(data.get("completed"), dict)
+                    else {}
+                )
         except Exception:
             pass
 
@@ -435,7 +529,9 @@ def main() -> int:
         if not db_path.exists():
             return None
         try:
-            con = duckdb.connect(str(db_path), read_only=True, config={"lock_configuration": "none"})
+            con = duckdb.connect(
+                str(db_path), read_only=True, config={"lock_configuration": "none"}
+            )
             try:
                 row = con.execute("SELECT count(*) FROM cc_ingested_files").fetchone()
                 n = int(row[0]) if row and row[0] is not None else 0
@@ -501,16 +597,26 @@ def main() -> int:
                 progress_interval_seconds=int(args.progress_interval_seconds),
                 threads=int(args.threads_per_worker),
                 batch_rows=(int(args.batch_rows) if args.batch_rows is not None else None),
-                memory_limit_gib=(float(args.memory_limit_gib) if args.memory_limit_gib is not None else None),
+                memory_limit_gib=(
+                    float(args.memory_limit_gib) if args.memory_limit_gib is not None else None
+                ),
                 parquet_compression=str(args.parquet_compression),
-                parquet_compression_level=(int(args.parquet_compression_level) if args.parquet_compression_level is not None else None),
+                parquet_compression_level=(
+                    int(args.parquet_compression_level)
+                    if args.parquet_compression_level is not None
+                    else None
+                ),
                 parquet_sort=str(args.parquet_sort),
                 parquet_validate=str(args.parquet_validate),
                 parquet_action=str(args.parquet_action),
                 duckdb_index_mode=str(args.duckdb_index_mode),
                 domain_index_action=str(args.domain_index_action),
                 domain_range_index=bool(args.domain_range_index),
-                resume_require_parquet=(bool(args.resume_require_parquet) if args.resume_require_parquet is not None else None),
+                resume_require_parquet=(
+                    bool(args.resume_require_parquet)
+                    if args.resume_require_parquet is not None
+                    else None
+                ),
                 collection=c,
             )
             print(" ".join(shlex.quote(x) for x in cmd))
@@ -531,16 +637,26 @@ def main() -> int:
             progress_interval_seconds=int(args.progress_interval_seconds),
             threads=int(args.threads_per_worker),
             batch_rows=(int(args.batch_rows) if args.batch_rows is not None else None),
-            memory_limit_gib=(float(args.memory_limit_gib) if args.memory_limit_gib is not None else None),
+            memory_limit_gib=(
+                float(args.memory_limit_gib) if args.memory_limit_gib is not None else None
+            ),
             parquet_compression=str(args.parquet_compression),
-            parquet_compression_level=(int(args.parquet_compression_level) if args.parquet_compression_level is not None else None),
+            parquet_compression_level=(
+                int(args.parquet_compression_level)
+                if args.parquet_compression_level is not None
+                else None
+            ),
             parquet_sort=str(args.parquet_sort),
             parquet_validate=str(args.parquet_validate),
             parquet_action=str(args.parquet_action),
             duckdb_index_mode=str(args.duckdb_index_mode),
             domain_index_action=str(args.domain_index_action),
             domain_range_index=bool(args.domain_range_index),
-            resume_require_parquet=(bool(args.resume_require_parquet) if args.resume_require_parquet is not None else None),
+            resume_require_parquet=(
+                bool(args.resume_require_parquet)
+                if args.resume_require_parquet is not None
+                else None
+            ),
             collection=col,
         )
 
@@ -554,7 +670,15 @@ def main() -> int:
             log_f.flush()
             proc = Popen(cmd, stdout=log_f, stderr=log_f, close_fds=True, env=env)
 
-        running.append(Running(collection=col, proc=proc, log_file=log_file, started_at=_now(), attempts=int(attempts[col])))
+        running.append(
+            Running(
+                collection=col,
+                proc=proc,
+                log_file=log_file,
+                started_at=_now(),
+                attempts=int(attempts[col]),
+            )
+        )
         print(
             f"action\tstart\tcollection={col}\tpid={proc.pid}\tattempt={attempts[col]}\tmem_avail_gib={_mem_available_gib():.1f}",
             flush=True,
@@ -596,7 +720,10 @@ def main() -> int:
                 completed[r.collection] = True
 
             status = "ok" if rc == 0 else "fail"
-            print(f"event\texit\tcollection={r.collection}\tpid={r.proc.pid}\trc={rc}\tstatus={status}", flush=True)
+            print(
+                f"event\texit\tcollection={r.collection}\tpid={r.proc.pid}\trc={rc}\tstatus={status}",
+                flush=True,
+            )
 
             if rc == 0 and not completed.get(r.collection, False):
                 # Avoid tight respawn loops if the process exits quickly but completion criteria
@@ -605,11 +732,18 @@ def main() -> int:
             elif rc != 0 and not completed.get(r.collection, False):
                 # backoff + retry
                 if int(attempts.get(r.collection, 0)) < int(args.max_attempts):
-                    backoff = int(args.retry_backoff_seconds) * (2 ** max(0, int(attempts.get(r.collection, 1)) - 1))
+                    backoff = int(args.retry_backoff_seconds) * (
+                        2 ** max(0, int(attempts.get(r.collection, 1)) - 1)
+                    )
                     next_ok[r.collection] = _now() + float(backoff)
-                    print(f"event\tbackoff\tcollection={r.collection}\tseconds={backoff}", flush=True)
+                    print(
+                        f"event\tbackoff\tcollection={r.collection}\tseconds={backoff}", flush=True
+                    )
                 else:
-                    print(f"event\tgive_up\tcollection={r.collection}\tattempts={attempts.get(r.collection)}", flush=True)
+                    print(
+                        f"event\tgive_up\tcollection={r.collection}\tattempts={attempts.get(r.collection)}",
+                        flush=True,
+                    )
 
         running = still
 
@@ -657,7 +791,10 @@ def main() -> int:
                 # run later once shards appear.
                 if int(attempts.get(col, 0)) >= int(args.max_attempts):
                     attempts[col] = 0
-                print(f"event\twait_no_input\tcollection={col}\tseconds={int(args.retry_backoff_seconds)}", flush=True)
+                print(
+                    f"event\twait_no_input\tcollection={col}\tseconds={int(args.retry_backoff_seconds)}",
+                    flush=True,
+                )
                 continue
 
             if int(attempts.get(col, 0)) >= int(args.max_attempts):

@@ -104,8 +104,8 @@ def main() -> int:
     print("VALIDATION COMPLETE")
     print("=" * 80)
     print(f"Total:    {len(all_files)}")
-    print(f"Sorted:   {len(sorted_files)} ({len(sorted_files)/len(all_files)*100:.1f}%)")
-    print(f"Unsorted: {len(unsorted_files)} ({len(unsorted_files)/len(all_files)*100:.1f}%)")
+    print(f"Sorted:   {len(sorted_files)} ({len(sorted_files) / len(all_files) * 100:.1f}%)")
+    print(f"Unsorted: {len(unsorted_files)} ({len(unsorted_files) / len(all_files) * 100:.1f}%)")
     print()
 
     if unsorted_files:

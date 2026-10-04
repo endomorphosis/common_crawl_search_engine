@@ -106,8 +106,8 @@ Then call the same API:
 from common_crawl_search_engine.ccindex.api import search_domain_via_meta_indexes
 
 res = search_domain_via_meta_indexes(
-        "example.com",
-        hf_remote_meta=True,
+    "example.com",
+    hf_remote_meta=True,
 )
 
 print(res.meta_source)
@@ -236,6 +236,7 @@ Enable debug logging to see HuggingFace fallback activity:
 
 ```python
 import os
+
 os.environ["HF_ENABLE_FALLBACK"] = "true"
 # The system will emit events for rowgroup reads including source (local/huggingface)
 ```
@@ -368,7 +369,7 @@ results = resolve_urls_to_ccindex(
 # Results indicate source in the 'source' field
 for url, records in results.items():
     for rec in records:
-        source = rec.get('source', 'unknown')
+        source = rec.get("source", "unknown")
         print(f"Record from {source}: {rec['url']}")
 ```
 

@@ -2,7 +2,10 @@ from pathlib import Path
 
 from common_crawl_search_engine.ccindex import api
 from common_crawl_search_engine.ccindex import hf_datasets_adapter
-from common_crawl_search_engine.ccindex.hf_datasets_adapter import HFMetaIndexSQLReader, hf_dataset_resolve_url
+from common_crawl_search_engine.ccindex.hf_datasets_adapter import (
+    HFMetaIndexSQLReader,
+    hf_dataset_resolve_url,
+)
 
 
 def test_hf_dataset_resolve_url_builds_expected_path() -> None:
@@ -124,8 +127,12 @@ def test_hf_remote_list_collections_cache_reused_across_readers(monkeypatch) -> 
 
     monkeypatch.setattr(HFMetaIndexSQLReader, "_query_with_retry", fake_query)
 
-    reader_a = HFMetaIndexSQLReader(index_dataset_name="idx", pointers_dataset_name="ptr", revision="main")
-    reader_b = HFMetaIndexSQLReader(index_dataset_name="idx", pointers_dataset_name="ptr", revision="main")
+    reader_a = HFMetaIndexSQLReader(
+        index_dataset_name="idx", pointers_dataset_name="ptr", revision="main"
+    )
+    reader_b = HFMetaIndexSQLReader(
+        index_dataset_name="idx", pointers_dataset_name="ptr", revision="main"
+    )
 
     assert reader_a.list_collections(year="2024") == [("2024", "CC-MAIN-2024-10")]
     assert reader_b.list_collections(year="2024") == [("2024", "CC-MAIN-2024-10")]
@@ -142,9 +149,17 @@ def test_hf_remote_parquet_relpaths_cache_reused_across_readers(monkeypatch) -> 
 
     monkeypatch.setattr(HFMetaIndexSQLReader, "_query_with_retry", fake_query)
 
-    reader_a = HFMetaIndexSQLReader(index_dataset_name="idx", pointers_dataset_name="ptr", revision="main")
-    reader_b = HFMetaIndexSQLReader(index_dataset_name="idx", pointers_dataset_name="ptr", revision="main")
+    reader_a = HFMetaIndexSQLReader(
+        index_dataset_name="idx", pointers_dataset_name="ptr", revision="main"
+    )
+    reader_b = HFMetaIndexSQLReader(
+        index_dataset_name="idx", pointers_dataset_name="ptr", revision="main"
+    )
 
-    assert reader_a.parquet_relpaths_for_domain("CC-MAIN-2024-10", "com,example") == ["cdx-00000.gz.sorted.parquet"]
-    assert reader_b.parquet_relpaths_for_domain("CC-MAIN-2024-10", "com,example") == ["cdx-00000.gz.sorted.parquet"]
+    assert reader_a.parquet_relpaths_for_domain("CC-MAIN-2024-10", "com,example") == [
+        "cdx-00000.gz.sorted.parquet"
+    ]
+    assert reader_b.parquet_relpaths_for_domain("CC-MAIN-2024-10", "com,example") == [
+        "cdx-00000.gz.sorted.parquet"
+    ]
     assert calls["count"] == 1

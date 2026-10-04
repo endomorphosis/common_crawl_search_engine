@@ -44,6 +44,7 @@ _datasets_import_error: Optional[str] = None
 try:
     import datasets
     from datasets import load_dataset
+
     _have_datasets = True
 except ImportError as e:
     _datasets_import_error = str(e)
@@ -51,6 +52,7 @@ except ImportError as e:
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     _have_pyarrow = True
 except ImportError:
     _have_pyarrow = False
@@ -90,7 +92,9 @@ def _collection_year(collection: str) -> Optional[str]:
     return None
 
 
-_HF_COLLECTIONS_CACHE: Dict[Tuple[str, str, Optional[str]], Tuple[Tuple[Optional[str], str], ...]] = {}
+_HF_COLLECTIONS_CACHE: Dict[
+    Tuple[str, str, Optional[str]], Tuple[Tuple[Optional[str], str], ...]
+] = {}
 _HF_PARQUET_RELPATHS_CACHE: Dict[Tuple[str, str, str, str, bool], Tuple[str, ...]] = {}
 
 
@@ -177,7 +181,7 @@ class HFMetaIndexSQLReader:
                 msg = str(e)
                 if attempt >= self.max_retries or not _is_transient_remote_error(msg):
                     raise
-                sleep_s = self.retry_base_sleep_s * (2 ** attempt)
+                sleep_s = self.retry_base_sleep_s * (2**attempt)
                 if "429" in msg or "too many requests" in msg.lower():
                     sleep_s = max(sleep_s, 2.0)
                 if sleep_s > 0:
@@ -189,7 +193,11 @@ class HFMetaIndexSQLReader:
     def list_collections(self, year: Optional[str] = None) -> List[Tuple[Optional[str], str]]:
         """Return [(year, collection), ...] from the HF master collection summary."""
 
-        cache_key = (self.index_dataset_name, self.revision, str(year) if year is not None else None)
+        cache_key = (
+            self.index_dataset_name,
+            self.revision,
+            str(year) if year is not None else None,
+        )
         cached = _HF_COLLECTIONS_CACHE.get(cache_key)
         if cached is not None:
             return list(cached)
@@ -234,7 +242,9 @@ class HFMetaIndexSQLReader:
             f"{y}/{collection}/{collection}__cc_domain_shards.parquet",
             f"{y}/cc_pointers_{y}.cc_domain_shards.parquet",
         ]
-        return [hf_dataset_resolve_url(self.index_dataset_name, rp, self.revision) for rp in relpaths]
+        return [
+            hf_dataset_resolve_url(self.index_dataset_name, rp, self.revision) for rp in relpaths
+        ]
 
     def parquet_relpaths_for_domain(
         self,
@@ -522,15 +532,20 @@ class HFRowGroupReader:
         try:
             # Get the underlying data files
             # HuggingFace datasets can provide access to underlying files
-            if hasattr(ds, '_data') and hasattr(ds._data, 'files'):
+            if hasattr(ds, "_data") and hasattr(ds._data, "files"):
                 data_files = ds._data.files
-            elif hasattr(ds, 'cache_files'):
-                data_files = [f['filename'] for f in ds.cache_files]
+            elif hasattr(ds, "cache_files"):
+                data_files = [f["filename"] for f in ds.cache_files]
             else:
                 # Try to find parquet files in the dataset cache directory
                 year = self._get_collection_year(collection)
                 if year and self.cache_dir:
-                    cache_path = Path(self.cache_dir) / self.dataset_name.replace("/", "--") / year / collection
+                    cache_path = (
+                        Path(self.cache_dir)
+                        / self.dataset_name.replace("/", "--")
+                        / year
+                        / collection
+                    )
                     if cache_path.exists():
                         parquet_path = cache_path / parquet_filename
                         if parquet_path.exists():
@@ -616,16 +631,16 @@ class HFRowGroupReader:
         parquet_files: List[str] = []
 
         try:
-            if hasattr(ds, '_data') and hasattr(ds._data, 'files'):
+            if hasattr(ds, "_data") and hasattr(ds._data, "files"):
                 data_files = ds._data.files
-            elif hasattr(ds, 'cache_files'):
-                data_files = [f['filename'] for f in ds.cache_files]
+            elif hasattr(ds, "cache_files"):
+                data_files = [f["filename"] for f in ds.cache_files]
             else:
                 return []
 
             for file_path in data_files:
                 path_str = str(file_path)
-                if path_str.endswith('.parquet'):
+                if path_str.endswith(".parquet"):
                     parquet_files.append(Path(path_str).name)
 
         except Exception as e:

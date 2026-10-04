@@ -162,12 +162,30 @@ def _write_parquet(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--input-root", required=True, type=str, help="Root folder of local CC index shards (e.g. /storage/ccindex)")
+    ap.add_argument(
+        "--input-root",
+        required=True,
+        type=str,
+        help="Root folder of local CC index shards (e.g. /storage/ccindex)",
+    )
     ap.add_argument("--max-files", type=int, default=4, help="Max number of shard files to sample")
-    ap.add_argument("--max-lines-per-file", type=int, default=250000, help="Cap lines read per shard file")
+    ap.add_argument(
+        "--max-lines-per-file", type=int, default=250000, help="Cap lines read per shard file"
+    )
     ap.add_argument("--out", required=True, type=str, help="Output Parquet file path")
-    ap.add_argument("--compression", type=str, default="zstd", choices=["zstd", "snappy", "gzip"], help="Parquet compression")
-    ap.add_argument("--compression-level", type=int, default=None, help="Compression level (codec-dependent, optional)")
+    ap.add_argument(
+        "--compression",
+        type=str,
+        default="zstd",
+        choices=["zstd", "snappy", "gzip"],
+        help="Parquet compression",
+    )
+    ap.add_argument(
+        "--compression-level",
+        type=int,
+        default=None,
+        help="Compression level (codec-dependent, optional)",
+    )
     ap.add_argument("--batch-rows", type=int, default=200000, help="Rows per Parquet write batch")
     args = ap.parse_args()
 

@@ -109,7 +109,9 @@ def _http_head(url: str, timeout_s: float) -> Tuple[int, Dict[str, str]]:
         return int(status), headers
 
 
-def _http_range_get(url: str, start: int, end_inclusive: int, timeout_s: float) -> Tuple[int, Dict[str, str], bytes]:
+def _http_range_get(
+    url: str, start: int, end_inclusive: int, timeout_s: float
+) -> Tuple[int, Dict[str, str], bytes]:
     # RFC 7233: bytes=<first>-<last>
     req = urllib.request.Request(url, method="GET")
     req.add_header("Range", f"bytes={start}-{end_inclusive}")
@@ -201,7 +203,12 @@ def _download_to_file(
             if out_path.exists() and overwrite:
                 out_path.unlink()
             tmp_path.replace(out_path)
-            return True, f"downloaded bytes={_format_size(expected_size)} path={out_path}" if expected_size else f"downloaded path={out_path}"
+            return (
+                True,
+                f"downloaded bytes={_format_size(expected_size)} path={out_path}"
+                if expected_size
+                else f"downloaded path={out_path}",
+            )
 
         except Exception as e:
             last_err = f"{type(e).__name__}: {e}"
@@ -239,7 +246,12 @@ def main() -> int:
         default=None,
         help="Optional byte range to GET as START:END (inclusive), e.g. 0:63",
     )
-    ap.add_argument("--show-bytes", action="store_true", default=False, help="Print first 64 bytes (hex) of the ranged GET")
+    ap.add_argument(
+        "--show-bytes",
+        action="store_true",
+        default=False,
+        help="Print first 64 bytes (hex) of the ranged GET",
+    )
 
     ap.add_argument(
         "--download-dir",
@@ -253,7 +265,9 @@ def main() -> int:
         default="none",
         help="Download mode when --download-dir is provided (default: none)",
     )
-    ap.add_argument("--overwrite", action="store_true", default=False, help="Overwrite existing downloads")
+    ap.add_argument(
+        "--overwrite", action="store_true", default=False, help="Overwrite existing downloads"
+    )
     ap.add_argument("--retries", type=int, default=2, help="Download retries (default: 2)")
 
     args = ap.parse_args()
@@ -293,7 +307,9 @@ def main() -> int:
 
             if range_tuple is not None:
                 rs, re = range_tuple
-                r_status, r_headers, data = _http_range_get(url, rs, re, timeout_s=float(args.timeout))
+                r_status, r_headers, data = _http_range_get(
+                    url, rs, re, timeout_s=float(args.timeout)
+                )
                 cr = r_headers.get("content-range")
                 print(f"  RANGE {r_status} bytes={len(data)} content_range={cr!r}")
                 if args.show_bytes:

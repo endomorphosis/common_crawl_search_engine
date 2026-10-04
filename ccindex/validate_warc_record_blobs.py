@@ -87,7 +87,7 @@ def _validate_one(path: Path, max_decompressed_bytes: int) -> Dict[str, object]:
         # If it isn't gzip, still try to interpret as plain WARC text.
         if not res["gzip_header"]:
             try:
-                text = data[: max_decompressed_bytes].decode("utf-8", errors="replace")
+                text = data[:max_decompressed_bytes].decode("utf-8", errors="replace")
                 if text.startswith("WARC/1."):
                     res["warc_header_ok"] = True
                     res["warc"] = _parse_warc_headers(text)
@@ -124,7 +124,9 @@ def _validate_one(path: Path, max_decompressed_bytes: int) -> Dict[str, object]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Validate downloaded WARC record blobs (gzip member -> WARC header)")
+    ap = argparse.ArgumentParser(
+        description="Validate downloaded WARC record blobs (gzip member -> WARC header)"
+    )
     ap.add_argument("paths", nargs="*", type=Path, help="One or more .bin files")
     ap.add_argument("--dir", type=Path, default=None, help="Directory containing .bin blobs")
     ap.add_argument(
@@ -136,7 +138,12 @@ def main() -> int:
 
     args = ap.parse_args()
 
-    files = list(_iter_files([p.expanduser().resolve() for p in args.paths], args.dir.expanduser().resolve() if args.dir else None))
+    files = list(
+        _iter_files(
+            [p.expanduser().resolve() for p in args.paths],
+            args.dir.expanduser().resolve() if args.dir else None,
+        )
+    )
     if not files:
         print("No input files", file=sys.stderr)
         return 2

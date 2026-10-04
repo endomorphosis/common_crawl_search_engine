@@ -77,7 +77,9 @@ def main() -> int:
 
     # Views for Parquet access.
     con.execute("DROP VIEW IF EXISTS cc_idx_parquet")
-    con.execute(f"CREATE VIEW cc_idx_parquet AS SELECT * FROM read_parquet('{parquet_path.as_posix()}')")
+    con.execute(
+        f"CREATE VIEW cc_idx_parquet AS SELECT * FROM read_parquet('{parquet_path.as_posix()}')"
+    )
 
     # Build a URL list to lookup. We sample from the parquet itself to ensure hits.
     con.execute("DROP TABLE IF EXISTS lookup_urls")
@@ -133,8 +135,12 @@ def main() -> int:
 
     print("")
     print("Notes:")
-    print("- This benchmark uses URLs sampled from the same Parquet, so it measures lookup/join overhead, not miss rate.")
-    print("- For real workloads, partitioning by collection/host often matters more than Parquet vs native.")
+    print(
+        "- This benchmark uses URLs sampled from the same Parquet, so it measures lookup/join overhead, not miss rate."
+    )
+    print(
+        "- For real workloads, partitioning by collection/host often matters more than Parquet vs native."
+    )
 
     return 0
 

@@ -122,7 +122,11 @@ def _duckdb_sort_subprocess(
         .replace("__READ_VIA_ARROW__", repr(bool(read_via_arrow)))
         .replace(
             "__ROW_GROUP_SIZE__",
-            repr(int(row_group_size) if row_group_size is not None and int(row_group_size) > 0 else None),
+            repr(
+                int(row_group_size)
+                if row_group_size is not None and int(row_group_size) > 0
+                else None
+            ),
         )
         .replace("__THREADS__", repr(int(threads)))
     )
@@ -245,7 +249,9 @@ def _parquet_rowgroups_approx_target_mb(
         return False
 
 
-def _parquet_rowgroups_median_rows(parquet_file: Path, *, sample_rowgroups: int = 10) -> Optional[float]:
+def _parquet_rowgroups_median_rows(
+    parquet_file: Path, *, sample_rowgroups: int = 10
+) -> Optional[float]:
     """Return median row-group row count for a shard (metadata-only, sampled)."""
 
     try:
@@ -419,7 +425,7 @@ def is_sorted_by_content(parquet_file: Path, sample_size: int = 1000) -> Tuple[b
 
         for i in range(len(sample) - 1):
             if sample[i] > sample[i + 1]:
-                return False, f"Unsorted within row group: {sample[i]} > {sample[i+1]}"
+                return False, f"Unsorted within row group: {sample[i]} > {sample[i + 1]}"
 
         # Check across row groups if multiple exist
         if pf.metadata.num_row_groups > 1:
@@ -547,7 +553,9 @@ def _two_stage_sort_parquet_file(
             batch_size = 65_536
             ts_in_memory_threshold = 200_000
 
-            def _write_url_sorted_table_with_ts_refinement(url_sorted: pa.Table) -> Tuple[bool, str]:
+            def _write_url_sorted_table_with_ts_refinement(
+                url_sorted: pa.Table,
+            ) -> Tuple[bool, str]:
                 if "url" not in url_sorted.schema.names or "ts" not in url_sorted.schema.names:
                     return False, "missing url/ts column"
 
@@ -580,7 +588,10 @@ def _two_stage_sort_parquet_file(
                 t_url = t.take(idx_url)
                 ok_in, msg_in = _write_url_sorted_table_with_ts_refinement(t_url)
                 if not ok_in:
-                    return False, f"three-stage in-memory failed for host_rev={current_host}: {msg_in}"
+                    return (
+                        False,
+                        f"three-stage in-memory failed for host_rev={current_host}: {msg_in}",
+                    )
             else:
                 # For large host runs: url sort via DuckDB (single key), then stream and sort ts per-url run.
                 url_sorted_path = run_path.with_suffix(run_path.suffix + ".urlsorted.parquet")
@@ -595,7 +606,10 @@ def _two_stage_sort_parquet_file(
                     threads=1,
                 )
                 if not ok2 or crash2:
-                    return False, f"three-stage stage2(url) failed for host_rev={current_host}: {tail2 or 'unknown'}"
+                    return (
+                        False,
+                        f"three-stage stage2(url) failed for host_rev={current_host}: {tail2 or 'unknown'}",
+                    )
 
                 pf2 = pq.ParquetFile(url_sorted_path)
                 current_url: Optional[str] = None
@@ -612,7 +626,13 @@ def _two_stage_sort_parquet_file(
                         url_spool_writer = None
 
                 def _flush_url_run() -> Tuple[bool, str]:
-                    nonlocal current_url, url_batches, url_rows, url_spool_path, url_spool_writer, url_run_idx
+                    nonlocal \
+                        current_url, \
+                        url_batches, \
+                        url_rows, \
+                        url_spool_path, \
+                        url_spool_writer, \
+                        url_run_idx
                     if current_url is None or url_rows <= 0:
                         _close_url_spool()
                         url_batches = []
@@ -623,7 +643,9 @@ def _two_stage_sort_parquet_file(
 
                     if url_spool_writer is not None and url_spool_path is not None:
                         _close_url_spool()
-                        ts_sorted_path = url_spool_path.with_suffix(url_spool_path.suffix + ".tssorted.parquet")
+                        ts_sorted_path = url_spool_path.with_suffix(
+                            url_spool_path.suffix + ".tssorted.parquet"
+                        )
                         ok3, tail3, crash3 = _duckdb_sort_subprocess(
                             input_file=url_spool_path,
                             output_file=ts_sorted_path,
@@ -635,13 +657,18 @@ def _two_stage_sort_parquet_file(
                             threads=1,
                         )
                         if not ok3 or crash3:
-                            return False, f"three-stage stage3(ts) failed for host_rev={current_host} url={current_url}: {tail3 or 'unknown'}"
+                            return (
+                                False,
+                                f"three-stage stage3(ts) failed for host_rev={current_host} url={current_url}: {tail3 or 'unknown'}",
+                            )
 
                         pf3 = pq.ParquetFile(ts_sorted_path)
                         for b3 in pf3.iter_batches(batch_size=batch_size):
                             writer.write_table(
                                 pa.Table.from_batches([b3]),
-                                row_group_size=int(row_group_size) if row_group_size is not None else None,
+                                row_group_size=int(row_group_size)
+                                if row_group_size is not None
+                                else None,
                             )
                         try:
                             url_spool_path.unlink(missing_ok=True)
@@ -657,7 +684,9 @@ def _two_stage_sort_parquet_file(
                         t_ts = t_run.take(idx_ts)
                         writer.write_table(
                             t_ts,
-                            row_group_size=int(row_group_size) if row_group_size is not None else None,
+                            row_group_size=int(row_group_size)
+                            if row_group_size is not None
+                            else None,
                         )
 
                     url_batches = []
@@ -711,8 +740,12 @@ def _two_stage_sort_parquet_file(
                         url_rows += int(slice_b.num_rows)
 
                         if url_spool_writer is None and url_rows > ts_in_memory_threshold:
-                            url_spool_path = run_dir / f"urlrun_{run_idx:06d}_{url_run_idx:06d}.parquet"
-                            url_spool_writer = pq.ParquetWriter(str(url_spool_path), schema=schema, compression="zstd")
+                            url_spool_path = (
+                                run_dir / f"urlrun_{run_idx:06d}_{url_run_idx:06d}.parquet"
+                            )
+                            url_spool_writer = pq.ParquetWriter(
+                                str(url_spool_path), schema=schema, compression="zstd"
+                            )
                             for bb in url_batches:
                                 url_spool_writer.write_table(pa.Table.from_batches([bb]))
                             url_batches = []
@@ -858,7 +891,11 @@ def rewrite_sorted_parquet_file(
         try:
             pf = pq.ParquetFile(input_file)
             schema = pf.schema_arrow
-            batch_size = int(row_group_size) if row_group_size is not None and int(row_group_size) > 0 else 65_536
+            batch_size = (
+                int(row_group_size)
+                if row_group_size is not None and int(row_group_size) > 0
+                else 65_536
+            )
             writer = pq.ParquetWriter(str(output_file), schema=schema, compression="zstd")
             try:
                 for batch in pf.iter_batches(batch_size=batch_size):
@@ -917,7 +954,9 @@ def rewrite_sorted_parquet_file(
         return False, msg
 
 
-def check_single_file(pq_file: Path, parquet_root: Path, verify_only: bool) -> Tuple[str, Path, bool, str]:
+def check_single_file(
+    pq_file: Path, parquet_root: Path, verify_only: bool
+) -> Tuple[str, Path, bool, str]:
     """Check a single parquet file and optionally mark it as sorted.
 
     Returns: (status, file_path, is_sorted, reason)
@@ -948,7 +987,12 @@ def check_single_file(pq_file: Path, parquet_root: Path, verify_only: bool) -> T
                     pq_file.unlink()
                 except Exception:
                     pass
-                return ("sorted_unmarked", new_path, True, f"Marked already existed; removed duplicate")
+                return (
+                    "sorted_unmarked",
+                    new_path,
+                    True,
+                    f"Marked already existed; removed duplicate",
+                )
 
             pq_file.rename(new_path)
             return ("sorted_unmarked", new_path, True, f"Marked as {new_name}")
@@ -959,7 +1003,9 @@ def check_single_file(pq_file: Path, parquet_root: Path, verify_only: bool) -> T
         return ("error", pq_file, False, str(e))
 
 
-def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple[str, bool, str, str]:
+def sort_and_mark_one(
+    args: Tuple[str, float, str, Optional[int], str],
+) -> Tuple[str, bool, str, str]:
     """Sort or rewrite one parquet file.
 
     Args tuple: (src_path, memory_per_sort_gb, temp_root, row_group_size, mode)
@@ -1016,7 +1062,12 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
                         break
                     last_err = err
                 if not sort_ok:
-                    return str(src), False, f"source not sorted ({src_reason}); sort failed: {last_err}", ""
+                    return (
+                        str(src),
+                        False,
+                        f"source not sorted ({src_reason}); sort failed: {last_err}",
+                        "",
+                    )
 
                 ok, reason = is_sorted_by_content(sorted_tmp)
                 if not ok:
@@ -1080,7 +1131,12 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
                         break
 
                 if not sort_ok:
-                    return str(src), False, f"rewrite verification failed: {reason}; sort fallback failed: {last_err}", ""
+                    return (
+                        str(src),
+                        False,
+                        f"rewrite verification failed: {reason}; sort fallback failed: {last_err}",
+                        "",
+                    )
 
                 ok3, reason3 = is_sorted_by_content(sorted_tmp)
                 if not ok3:
@@ -1117,7 +1173,9 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
                 break
             last_err = err
             low = (err or "").lower()
-            crash_like = crash_like or ("crashed" in low or "segfault" in low or "segmentation fault" in low)
+            crash_like = crash_like or (
+                "crashed" in low or "segfault" in low or "segmentation fault" in low
+            )
             if "out of memory" not in low:
                 # Non-OOM errors usually won't benefit from row_group_size tweaking.
                 break
@@ -1201,7 +1259,9 @@ def sort_and_mark_one(args: Tuple[str, float, str, Optional[int], str]) -> Tuple
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Validate and mark sorted parquet files")
-    ap.add_argument("--parquet-root", required=True, type=str, help="Root directory of parquet files")
+    ap.add_argument(
+        "--parquet-root", required=True, type=str, help="Root directory of parquet files"
+    )
     ap.add_argument(
         "--only",
         action="append",
@@ -1284,8 +1344,12 @@ def main() -> int:
     )
     ap.add_argument("--sort-unsorted", action="store_true", help="Sort any unsorted files found")
     ap.add_argument("--verify-only", action="store_true", help="Only verify, don't mark or sort")
-    ap.add_argument("--memory-per-sort", type=float, default=4.0, help="GB memory per sort operation")
-    ap.add_argument("--workers", type=int, default=None, help="Number of parallel workers (default: CPU count)")
+    ap.add_argument(
+        "--memory-per-sort", type=float, default=4.0, help="GB memory per sort operation"
+    )
+    ap.add_argument(
+        "--workers", type=int, default=None, help="Number of parallel workers (default: CPU count)"
+    )
     ap.add_argument(
         "--sort-workers",
         type=int,
@@ -1418,7 +1482,7 @@ def main() -> int:
                 if now - last_hb >= heartbeat_seconds:
                     elapsed = now - start_check
                     print(
-                        f"Heartbeat(check): {completed}/{len(all_files)} done in {elapsed/60:.1f} min "
+                        f"Heartbeat(check): {completed}/{len(all_files)} done in {elapsed / 60:.1f} min "
                         f"(marked={len(already_marked)}, sorted={len(sorted_unmarked)}, "
                         f"unsorted={len(unsorted_files)}, errors={len(error_files)})",
                         flush=True,
@@ -1458,7 +1522,11 @@ def main() -> int:
 
         sort_workers = max(1, int(args.sort_workers))
         rewrite_workers = max(1, int(args.rewrite_workers or args.workers or sort_workers))
-        temp_root = Path(args.temp_dir).expanduser().resolve() if args.temp_dir else Path(tempfile.gettempdir())
+        temp_root = (
+            Path(args.temp_dir).expanduser().resolve()
+            if args.temp_dir
+            else Path(tempfile.gettempdir())
+        )
         temp_root.mkdir(parents=True, exist_ok=True)
 
         rewrite_files: List[Path] = []
@@ -1477,7 +1545,9 @@ def main() -> int:
                 target_mb = args.rewrite_target_mb
                 if target_mb is None:
                     try:
-                        target_mb = int((os.environ.get("CC_SORT_ROW_GROUP_TARGET_MB") or "128").strip() or 128)
+                        target_mb = int(
+                            (os.environ.get("CC_SORT_ROW_GROUP_TARGET_MB") or "128").strip() or 128
+                        )
                     except Exception:
                         target_mb = 128
 
@@ -1486,7 +1556,9 @@ def main() -> int:
                 # Decide required columns.
                 required_cols: set[str]
                 if args.rewrite_require_column:
-                    required_cols = {str(c).strip() for c in args.rewrite_require_column if str(c).strip()}
+                    required_cols = {
+                        str(c).strip() for c in args.rewrite_require_column if str(c).strip()
+                    }
                 else:
                     required_cols = {"collection", "shard_file"}
 
@@ -1522,7 +1594,9 @@ def main() -> int:
                             if med_rows is not None and target_rows is not None:
                                 detail = f"median_rg_rows≈{int(med_rows):,} target={int(target_rows):,} tol=±{float(args.rewrite_tolerance):.2f}"
                             else:
-                                detail = f"target≈{target_mb}MB tol=±{float(args.rewrite_tolerance):.2f}"
+                                detail = (
+                                    f"target≈{target_mb}MB tol=±{float(args.rewrite_tolerance):.2f}"
+                                )
                             example_lines.append(f"  - {p.name}: {', '.join(reasons)} ({detail})")
                     else:
                         skipped += 1
@@ -1536,7 +1610,8 @@ def main() -> int:
                 if reason_counts:
                     # Note: counts are per-reason and a shard may contribute to multiple reasons.
                     summary = ", ".join(
-                        f"{k}={v}" for k, v in sorted(reason_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+                        f"{k}={v}"
+                        for k, v in sorted(reason_counts.items(), key=lambda kv: (-kv[1], kv[0]))
                     )
                     print(f"Rewrite reasons (files may have multiple): {summary}")
                 if example_lines:
@@ -1557,7 +1632,8 @@ def main() -> int:
                 isinstance(exc, BrokenProcessPool)
                 or "BrokenProcessPool" in msg
                 or "terminated abruptly" in msg
-                or "process pool" in msg and "terminated" in msg
+                or "process pool" in msg
+                and "terminated" in msg
             )
 
         def _make_executor(max_workers: int) -> ProcessPoolExecutor:
@@ -1589,8 +1665,14 @@ def main() -> int:
             # Encode per-file mode.
             work_items = []
             for p in files:
-                mode = "rewrite" if (args.rewrite_sorted and p.name.endswith(".sorted.parquet")) else "sort"
-                work_items.append((str(p), float(args.memory_per_sort), str(temp_root), args.row_group_size, mode))
+                mode = (
+                    "rewrite"
+                    if (args.rewrite_sorted and p.name.endswith(".sorted.parquet"))
+                    else "sort"
+                )
+                work_items.append(
+                    (str(p), float(args.memory_per_sort), str(temp_root), args.row_group_size, mode)
+                )
 
             ok_local = 0
             failed_local: List[Path] = []
@@ -1658,18 +1740,24 @@ def main() -> int:
 
                     # Don't sleep past a ramp boundary.
                     timeout = float(heartbeat_seconds)
-                    if ramp_step_seconds and ramp_step_seconds > 0 and inflight_limit < pass_workers:
+                    if (
+                        ramp_step_seconds
+                        and ramp_step_seconds > 0
+                        and inflight_limit < pass_workers
+                    ):
                         timeout = max(0.5, min(timeout, max(0.5, next_ramp - time.monotonic())))
 
-                    finished, _still_pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
+                    finished, _still_pending = wait(
+                        pending, timeout=timeout, return_when=FIRST_COMPLETED
+                    )
 
                     if not finished:
                         now = time.monotonic()
                         if now - last_sort_hb >= heartbeat_seconds:
                             elapsed = now - start_sort
                             print(
-                                f"Heartbeat(sort): {done}/{len(files)} done in {elapsed/60:.1f} min "
-                                f"(ok={ok_local}, fail={len(failed_local)}, inflight={len(pending)}/{inflight_limit}, remaining={len(work_items)-item_idx})",
+                                f"Heartbeat(sort): {done}/{len(files)} done in {elapsed / 60:.1f} min "
+                                f"(ok={ok_local}, fail={len(failed_local)}, inflight={len(pending)}/{inflight_limit}, remaining={len(work_items) - item_idx})",
                                 flush=True,
                             )
                             last_sort_hb = now
@@ -1683,7 +1771,9 @@ def main() -> int:
                             _src_path, ok, msg, out_path = fut.result()
                             if ok and out_path:
                                 ok_local += 1
-                                print(f"✅ [{done}/{len(files)}] {Path(src).name} -> {Path(out_path).name} ({msg})")
+                                print(
+                                    f"✅ [{done}/{len(files)}] {Path(src).name} -> {Path(out_path).name} ({msg})"
+                                )
                             else:
                                 failed_local.append(Path(src))
                                 print(f"❌ [{done}/{len(files)}] {Path(src).name}: {msg}")
@@ -1709,7 +1799,9 @@ def main() -> int:
             uniq_failed = sorted({p.resolve() for p in failed_local if p})
             return ok_local, uniq_failed, pool_crashed
 
-        def _run_with_pool_crash_retries(files: List[Path], pass_workers: int, label: str) -> Tuple[int, List[Path]]:
+        def _run_with_pool_crash_retries(
+            files: List[Path], pass_workers: int, label: str
+        ) -> Tuple[int, List[Path]]:
             """Run a pass with pool-crash detection/backoff.
 
             Returns: (ok_count, final_failed_files)
@@ -1773,13 +1865,17 @@ def main() -> int:
             return ok_total, retry_files
 
         # Run unsorted sorts (if any) with the (typically low) sort_workers.
-        ok_sort, failed_sort = _run_with_pool_crash_retries(list(unsorted_files), sort_workers, label="sorting")
+        ok_sort, failed_sort = _run_with_pool_crash_retries(
+            list(unsorted_files), sort_workers, label="sorting"
+        )
         sorted_count += ok_sort
         failed_count += len(failed_sort)
 
         # Run rewrites separately so they can use higher parallelism without affecting
         # unsorted sorting memory-safety defaults.
-        ok_rewrite, failed_rewrite = _run_with_pool_crash_retries(list(rewrite_files), rewrite_workers, label="rewriting")
+        ok_rewrite, failed_rewrite = _run_with_pool_crash_retries(
+            list(rewrite_files), rewrite_workers, label="rewriting"
+        )
         sorted_count += ok_rewrite
         failed_count += len(failed_rewrite)
 
@@ -1808,7 +1904,9 @@ def main() -> int:
         ):
             try:
                 # Provide defaults even when there were no already-marked shards.
-                row_group_size = int(args.row_group_size) if args.row_group_size is not None else None
+                row_group_size = (
+                    int(args.row_group_size) if args.row_group_size is not None else None
+                )
                 required_cols = (
                     {str(c).strip() for c in args.rewrite_require_column if str(c).strip()}
                     if args.rewrite_require_column
@@ -1821,14 +1919,18 @@ def main() -> int:
                     "sorted_count": int(len(all_files)),
                     "row_group_size": row_group_size,
                     "compression": "zstd",
-                    "rewrite_target_mb": int(args.rewrite_target_mb) if args.rewrite_target_mb is not None else None,
+                    "rewrite_target_mb": int(args.rewrite_target_mb)
+                    if args.rewrite_target_mb is not None
+                    else None,
                     "rewrite_tolerance": float(args.rewrite_tolerance),
                     "required_columns": sorted(required_cols),
                     "planned_rewrites": int(rewrite_planned),
                     "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 }
                 tmp = normalized_marker_path.with_suffix(normalized_marker_path.suffix + ".tmp")
-                tmp.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+                tmp.write_text(
+                    json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                )
                 os.replace(tmp, normalized_marker_path)
             except Exception:
                 pass

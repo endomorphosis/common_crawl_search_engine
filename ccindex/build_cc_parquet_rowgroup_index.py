@@ -89,7 +89,9 @@ def _to_text(v) -> Optional[str]:
     return str(v)
 
 
-def index_one(con: duckdb.DuckDBPyConnection, collection: str, parquet_path: Path, dry_run: bool) -> Tuple[bool, str]:
+def index_one(
+    con: duckdb.DuckDBPyConnection, collection: str, parquet_path: Path, dry_run: bool
+) -> Tuple[bool, str]:
     st = parquet_path.stat()
     size_bytes = int(st.st_size)
     mtime_ns = int(st.st_mtime_ns)
@@ -121,7 +123,9 @@ def index_one(con: duckdb.DuckDBPyConnection, collection: str, parquet_path: Pat
         host_min = _to_text(stats.min) if stats is not None else None
         host_max = _to_text(stats.max) if stats is not None else None
         row_count = int(rg_meta.num_rows)
-        rows.append((str(parquet_path), int(rg), int(row_start), int(row_count), host_min, host_max))
+        rows.append(
+            (str(parquet_path), int(rg), int(row_start), int(row_count), host_min, host_max)
+        )
         row_start += row_count
 
     con.executemany(
@@ -134,19 +138,51 @@ def index_one(con: duckdb.DuckDBPyConnection, collection: str, parquet_path: Pat
 
     con.execute(
         "INSERT INTO parquet_files (parquet_path, collection, year, size_bytes, mtime_ns, row_groups, total_rows, indexed_at) VALUES (?, ?, ?, ?, ?, ?, ?, now())",
-        [str(parquet_path), str(collection), year, size_bytes, mtime_ns, int(meta.num_row_groups), int(meta.num_rows)],
+        [
+            str(parquet_path),
+            str(collection),
+            year,
+            size_bytes,
+            mtime_ns,
+            int(meta.num_row_groups),
+            int(meta.num_rows),
+        ],
     )
 
     return True, f"indexed(row_groups={meta.num_row_groups} rows={meta.num_rows})"
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    ap = argparse.ArgumentParser(description="Build a DuckDB index of Parquet row-group host_rev ranges + row offsets.")
-    ap.add_argument("--parquet-root", required=True, type=str, help="Root like /storage/ccindex_parquet/cc_pointers_by_collection")
-    ap.add_argument("--db", required=True, type=str, help="Output DuckDB path (e.g. /storage/ccindex_duckdb/cc_parquet_rowgroups.duckdb)")
-    ap.add_argument("--collections", action="append", default=None, help="Repeatable: only index these collections")
-    ap.add_argument("--collections-regex", type=str, default=None, help="Regex to select collections (when enumerating)")
-    ap.add_argument("--max-files", type=int, default=None, help="Stop after indexing this many files")
+    ap = argparse.ArgumentParser(
+        description="Build a DuckDB index of Parquet row-group host_rev ranges + row offsets."
+    )
+    ap.add_argument(
+        "--parquet-root",
+        required=True,
+        type=str,
+        help="Root like /storage/ccindex_parquet/cc_pointers_by_collection",
+    )
+    ap.add_argument(
+        "--db",
+        required=True,
+        type=str,
+        help="Output DuckDB path (e.g. /storage/ccindex_duckdb/cc_parquet_rowgroups.duckdb)",
+    )
+    ap.add_argument(
+        "--collections",
+        action="append",
+        default=None,
+        help="Repeatable: only index these collections",
+    )
+    ap.add_argument(
+        "--collections-regex",
+        type=str,
+        default=None,
+        help="Regex to select collections (when enumerating)",
+    )
+    ap.add_argument(
+        "--max-files", type=int, default=None, help="Stop after indexing this many files"
+    )
     ap.add_argument("--dry-run", action="store_true", default=False)
 
     args = ap.parse_args(argv)
@@ -161,7 +197,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     seen = 0
     did = 0
     skipped = 0
-    for collection, p in _iter_parquet_files(parquet_root, args.collections, args.collections_regex):
+    for collection, p in _iter_parquet_files(
+        parquet_root, args.collections, args.collections_regex
+    ):
         seen += 1
         ok, status = index_one(con, collection, p, dry_run=bool(args.dry_run))
         if ok:
